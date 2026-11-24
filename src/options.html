@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Voran options</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        font:
+          14px/1.5 system-ui,
+          sans-serif;
+        max-width: 480px;
+        margin: 32px auto;
+        padding: 0 16px;
+      }
+      label {
+        display: block;
+        margin-bottom: 4px;
+        font-weight: 600;
+      }
+      input {
+        box-sizing: border-box;
+        width: 100%;
+        padding: 6px 8px;
+        font: inherit;
+      }
+      button {
+        margin-top: 12px;
+        padding: 6px 14px;
+        font: inherit;
+      }
+      #status {
+        margin-left: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Voran</h1>
+    <form id="form">
+      <label for="apiKey">Anthropic API key</label>
+      <input id="apiKey" type="password" autocomplete="off" spellcheck="false" />
+      <button type="submit">Save</button>
+      <span id="status" role="status"></span>
+    </form>
+    <p>
+      The key is stored locally in this browser profile and sent only to api.anthropic.com. Selected
+      text is sent to Anthropic for correction.
+    </p>
+    <script src="options.js"></script>
+  </body>
+</html>
