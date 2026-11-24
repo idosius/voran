@@ -28,8 +28,8 @@ const form = requireElement('form', HTMLFormElement);
 const input = requireElement('apiKey', HTMLInputElement);
 const languageInput = requireElement('language', HTMLInputElement);
 const reasonLanguageInput = requireElement('reasonLanguage', HTMLInputElement);
-const status = requireElement('status', HTMLSpanElement);
-const saveButton = requireElement('save', HTMLButtonElement);
+const status = requireElement('status', HTMLParagraphElement);
+const fields = [input, languageInput, reasonLanguageInput];
 
 const labels = LANGUAGES.map((language) => languageLabel(language));
 attachCombobox(languageInput, [AUTO_LABEL, ...labels]);
@@ -63,14 +63,18 @@ async function load(): Promise<void> {
     }
     const settings = normalizeSettings(stored);
     showSettings(settings.language, settings.reasonLanguage);
-    saveButton.disabled = false;
+    for (const field of fields) {
+      field.disabled = false;
+    }
   } catch {
     status.textContent = 'Could not load the saved settings. Reload this page.';
   }
 }
 
 // Saving before the stored values are loaded would overwrite them with the defaults.
-saveButton.disabled = true;
+for (const field of fields) {
+  field.disabled = true;
+}
 void load();
 
 /**
@@ -108,7 +112,21 @@ async function save(apiKey: string): Promise<void> {
   }
 }
 
+// Saves run one after another so quick consecutive changes cannot interleave their writes.
+const queue = { tail: Promise.resolve() };
+
+async function saveAfter(previous: Promise<void>): Promise<void> {
+  await previous;
+  await save(input.value.trim());
+}
+
+function queueSave(): void {
+  queue.tail = saveAfter(queue.tail);
+}
+
 form.addEventListener('submit', (event) => {
   event.preventDefault();
-  void save(input.value.trim());
 });
+for (const field of fields) {
+  field.addEventListener('change', queueSave);
+}

@@ -17,7 +17,7 @@ npm run build
 
 1. Open `chrome://extensions` and enable Developer mode.
 2. Click **Load unpacked** and select the `dist/` directory.
-3. Open the extension's options page and save your API key. There you can also set the language of the text you correct (default: auto-detect) and the language of the explanation tooltips (default: English).
+3. Open the extension's options page and enter your API key. There you can also set the language of the text you correct (default: auto-detect) and the language of the explanation tooltips (default: English). Changes save automatically.
 
 ## Usage
 
@@ -97,7 +97,7 @@ Create an HTML file with a `<textarea>`, an `<input>`, a `<div contenteditable>`
 - [ ] No API key: error with an **Open options** button.
 - [ ] Selection over 8000 characters: error, no request sent.
 - [ ] Selection inside an iframe works.
-- [ ] Options: typing "deu" or "日本" filters the language list; unknown text plus Save shows an error and saves nothing; saved values survive reloading the options page.
+- [ ] Options: typing "deu" or "日本" filters the language list; unknown text then leaving the field shows an error and saves nothing; changes save automatically and survive reloading the options page.
 - [ ] Auto-detect: German, French and Japanese text are each corrected in their own language. With language = Spanish and explanations = Same as text, Spanish text is corrected with Spanish reasons.
 - [ ] Arabic or Hebrew text renders right-to-left in the dialog.
 

@@ -70,11 +70,6 @@
         padding: 6px 8px;
         font: inherit;
       }
-      button {
-        margin-top: 12px;
-        padding: 6px 14px;
-        font: inherit;
-      }
       .hint {
         margin: 6px 0 0;
         font-size: 12.5px;
@@ -87,7 +82,8 @@
         white-space: nowrap;
       }
       #status {
-        margin-left: 12px;
+        min-height: 1.5em;
+        margin: 12px 0 0;
       }
     </style>
   </head>
@@ -114,8 +110,7 @@
           >Get an Anthropic API key</a
         >
       </p>
-      <button id="save" type="submit">Save</button>
-      <span id="status" role="status"></span>
+      <p id="status" role="status"></p>
     </form>
     <script src="options.js"></script>
   </body>
