@@ -1,5 +1,7 @@
 import js from '@eslint/js';
 import prettier from 'eslint-config-prettier';
+import jestDom from 'eslint-plugin-jest-dom';
+import testingLibrary from 'eslint-plugin-testing-library';
 import unicorn from 'eslint-plugin-unicorn';
 import tseslint from 'typescript-eslint';
 
@@ -39,6 +41,14 @@ export default tseslint.config(
       'unicorn/consistent-boolean-name': 'off',
       'unicorn/no-null': 'off',
     },
+  },
+  {
+    files: ['tests/**/*.ts'],
+    ...testingLibrary.configs['flat/dom'],
+  },
+  {
+    files: ['tests/**/*.ts'],
+    ...jestDom.configs['flat/recommended'],
   },
   {
     files: ['tests/**/*.ts'],

@@ -1,3 +1,5 @@
+import { screen } from '@testing-library/dom';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { attachCombobox } from '../src/combobox';
 
@@ -14,27 +16,15 @@ function mount(id: string): HTMLInputElement {
   return field;
 }
 
-const state = { input: mount('lang') };
-
-function list(): HTMLElement {
-  const element = document.querySelector<HTMLElement>('.combo-list');
-  if (element === null) {
-    throw new Error('no list');
-  }
-  return element;
-}
-
 function visibleLabels(): string[] {
-  return [...list().querySelectorAll<HTMLElement>('li')]
-    .filter((item) => item.hidden === false)
-    .map((item) => item.textContent);
+  return screen.queryAllByRole('option').map((item) => item.textContent);
 }
 
-function key(name: string): void {
-  state.input.dispatchEvent(
-    new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }),
-  );
+function arrow(): HTMLElement {
+  return screen.getByRole('button', { name: 'Show all options' });
 }
+
+const state = { input: mount('lang') };
 
 beforeEach(() => {
   state.input = mount('lang');
@@ -43,82 +33,92 @@ beforeEach(() => {
 
 describe('attachCombobox', () => {
   it('always renders the arrow button and starts closed', () => {
-    expect(document.querySelector('.combo-button')).not.toBeNull();
-    expect(list().hidden).toBe(true);
-    expect(state.input.getAttribute('aria-expanded')).toBe('false');
+    expect(arrow()).toBeInTheDocument();
+    expect(screen.getByRole('listbox', { hidden: true })).not.toBeVisible();
+    expect(screen.getByRole('combobox')).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('shows every option from the arrow even when the input already has a value', () => {
-    state.input.value = 'English';
-    document.querySelector<HTMLElement>('.combo-button')?.click();
+  it('shows every option from the arrow even when the input already has a value', async () => {
+    const user = userEvent.setup();
+    await user.type(screen.getByRole('combobox'), 'English{Escape}');
+    await user.click(arrow());
     expect(visibleLabels()).toEqual(OPTIONS);
-    expect(list().querySelector('.active')?.textContent).toBe('English');
+    expect(screen.getByRole('option', { selected: true })).toHaveTextContent('English');
   });
 
-  it('closes when the arrow is clicked again', () => {
-    const button = document.querySelector<HTMLElement>('.combo-button');
-    button?.click();
-    button?.click();
-    expect(list().hidden).toBe(true);
+  it('closes when the arrow is clicked again', async () => {
+    const user = userEvent.setup();
+    await user.click(arrow());
+    expect(screen.getByRole('listbox')).toBeVisible();
+    await user.click(arrow());
+    expect(screen.getByRole('listbox', { hidden: true })).not.toBeVisible();
   });
 
-  it('filters while typing, by English or native name', () => {
-    state.input.value = 'deu';
-    state.input.dispatchEvent(new Event('input'));
+  it('filters while typing, by English or native name', async () => {
+    const user = userEvent.setup();
+    const input = screen.getByRole('combobox');
+    await user.type(input, 'deu');
     expect(visibleLabels()).toEqual(['German — Deutsch']);
-    state.input.value = 'ελλ';
-    state.input.dispatchEvent(new Event('input'));
+    await user.clear(input);
+    await user.type(input, 'ελλ');
     expect(visibleLabels()).toEqual(['Greek — Ελληνικά']);
   });
 
-  it('closes when nothing matches', () => {
-    state.input.value = 'zzz';
-    state.input.dispatchEvent(new Event('input'));
-    expect(list().hidden).toBe(true);
+  it('closes when nothing matches', async () => {
+    const user = userEvent.setup();
+    await user.type(screen.getByRole('combobox'), 'zzz');
+    expect(screen.getByRole('listbox', { hidden: true })).not.toBeVisible();
   });
 
-  it('picks with the keyboard', () => {
+  it('picks with the keyboard', async () => {
+    const user = userEvent.setup();
+    const input = screen.getByRole('combobox');
     let changed = 0;
-    state.input.addEventListener('change', () => {
+    input.addEventListener('change', () => {
       changed += 1;
     });
-    key('ArrowDown');
-    expect(list().hidden).toBe(false);
-    key('ArrowDown');
-    key('ArrowDown');
-    key('Enter');
-    expect(state.input.value).toBe('English');
-    expect(list().hidden).toBe(true);
+    await user.click(input);
+    await user.keyboard('{ArrowDown}');
+    expect(screen.getByRole('listbox')).toBeVisible();
+    await user.keyboard('{ArrowDown}{ArrowDown}{Enter}');
+    expect(input).toHaveValue('English');
+    expect(screen.getByRole('listbox', { hidden: true })).not.toBeVisible();
     expect(changed).toBe(1);
   });
 
-  it('wraps around with the arrow keys', () => {
-    key('ArrowDown');
-    key('ArrowUp');
-    expect(list().querySelector('.active')?.textContent).toBe('Greek — Ελληνικά');
+  it('wraps around with the arrow keys', async () => {
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('combobox'));
+    await user.keyboard('{ArrowDown}{ArrowUp}');
+    expect(screen.getByRole('option', { selected: true })).toHaveTextContent('Greek — Ελληνικά');
   });
 
-  it('picks with a click', () => {
-    key('ArrowDown');
-    list().querySelectorAll('li')[2]?.click();
-    expect(state.input.value).toBe('German — Deutsch');
-    expect(list().hidden).toBe(true);
+  it('picks with a click', async () => {
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('combobox'));
+    await user.keyboard('{ArrowDown}');
+    await user.click(screen.getByRole('option', { name: 'German — Deutsch' }));
+    expect(screen.getByRole('combobox')).toHaveValue('German — Deutsch');
+    expect(screen.getByRole('listbox', { hidden: true })).not.toBeVisible();
   });
 
-  it('closes on Escape and blur, and ignores Enter when closed', () => {
-    key('ArrowDown');
-    key('Escape');
-    expect(list().hidden).toBe(true);
-    key('Enter');
-    expect(state.input.value).toBe('');
-    key('ArrowDown');
-    state.input.dispatchEvent(new FocusEvent('blur'));
-    expect(list().hidden).toBe(true);
+  it('closes on Escape and blur, and ignores Enter when closed', async () => {
+    const user = userEvent.setup();
+    const input = screen.getByRole('combobox');
+    await user.click(input);
+    await user.keyboard('{ArrowDown}{Escape}');
+    expect(screen.getByRole('listbox', { hidden: true })).not.toBeVisible();
+    await user.keyboard('{Enter}');
+    expect(input).toHaveValue('');
+    await user.keyboard('{ArrowDown}');
+    await user.tab();
+    expect(screen.getByRole('listbox', { hidden: true })).not.toBeVisible();
   });
 
   it('renders option text as text, not HTML', () => {
     attachCombobox(mount('x'), ['<b>bold</b>']);
-    expect(document.querySelector('b')).toBeNull();
+    expect(screen.getByRole('option', { name: '<b>bold</b>', hidden: true })).toBeInTheDocument();
+    expect(screen.queryByText('bold', { selector: 'b' })).not.toBeInTheDocument();
   });
 
   it('needs a wrapper', () => {

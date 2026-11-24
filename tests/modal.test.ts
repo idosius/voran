@@ -1,20 +1,18 @@
+import { within } from '@testing-library/dom';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createModal, showApproval, showPending, showToast } from '../src/modal';
-
-function shadow(): ShadowRoot {
-  const root = document.querySelector('voran-root')?.shadowRoot;
-  if (!root) {
-    throw new Error('modal not mounted');
-  }
-  return root;
-}
+import { hosts, shadowRoot } from './helpers';
 
 beforeEach(() => {
-  document.body.replaceChildren();
-  for (const host of document.querySelectorAll('voran-root')) {
+  for (const host of hosts()) {
     host.remove();
   }
 });
+
+function pixels(value: string): number {
+  return Number(value.replace('px', ''));
+}
 
 afterEach(() => {
   vi.useRealTimers();
@@ -25,32 +23,37 @@ describe('createModal', () => {
     const modal = createModal(document);
     modal.showResult('a <img src=x onerror=alert(1)>', 'b <b>', []);
 
-    const root = shadow();
-    expect(root.querySelector('img')).toBeNull();
-    expect(root.querySelector('b')).toBeNull();
-    expect(root.querySelector('del.remove')?.textContent).toBe('a');
-    expect(root.querySelector('ins.add')?.textContent).toBe('b');
-    expect(root.querySelector('.diff')?.textContent).toContain('<img src=x onerror=alert(1)');
+    const view = within(shadowRoot());
+    expect(view.queryByRole('img')).not.toBeInTheDocument();
+    expect(view.getAllByRole('deletion')[0]).toHaveTextContent('a');
+    expect(view.getAllByRole('insertion')[0]).toHaveTextContent('b');
+    expect(view.getByRole('group', { name: 'Corrected text' })).toHaveTextContent(
+      '<img src=x onerror=alert(1)',
+    );
   });
 
   it('lets the text direction follow the content', () => {
     createModal(document).showResult('مرحبا', 'مرحبا بك', []);
-    expect(shadow().querySelector('.diff')?.getAttribute('dir')).toBe('auto');
+    expect(within(shadowRoot()).getByRole('group', { name: 'Corrected text' })).toHaveAttribute(
+      'dir',
+      'auto',
+    );
   });
 
   it('shows whitespace-only changes as visible glyphs', () => {
     const modal = createModal(document);
     modal.showResult('a  b', 'a\tb\n', []);
-    const root = shadow();
-    expect(root.querySelector('del')?.textContent).toBe('··');
-    expect(root.querySelector('ins')?.textContent).toContain('→');
+    const view = within(shadowRoot());
+    expect(view.getByRole('deletion')).toHaveTextContent('··');
+    expect(view.getByText(/→/u, { selector: 'ins' })).toBeInTheDocument();
   });
 
   it('shows no list and no hover targets without segments', () => {
     const modal = createModal(document);
     modal.showResult('a', 'b', []);
-    expect(shadow().querySelector('ul')).toBeNull();
-    expect(shadow().querySelector('.change')).toBeNull();
+    const view = within(shadowRoot());
+    expect(view.queryByRole('list')).not.toBeInTheDocument();
+    expect(view.queryByRole('group', { name: /^Correction:/ })).not.toBeInTheDocument();
   });
 
   describe('reason tooltip', () => {
@@ -63,125 +66,133 @@ describe('createModal', () => {
     function open(): { change: HTMLElement; tooltip: HTMLElement } {
       const modal = createModal(document);
       modal.showResult('Die Kinder spielt.', 'Die Kinder spielen.', SEGMENTS);
-      const root = shadow();
-      const change = root.querySelector<HTMLElement>('.change');
-      const tooltip = root.querySelector<HTMLElement>('.tooltip');
-      if (!change || !tooltip) {
-        throw new Error('missing change or tooltip');
-      }
-      return { change, tooltip };
+      const view = within(shadowRoot());
+      return {
+        change: view.getByRole('group', { name: 'Correction: spielt → spielen' }),
+        tooltip: view.getByRole('tooltip', { hidden: true }),
+      };
     }
 
     it('wraps each correction, with the mistake and the fix, and no bullet list', () => {
       const { change } = open();
-      expect(change.querySelector('del.remove')?.textContent).toBe('spielt');
-      expect(change.querySelector('ins.add')?.textContent).toBe('spielen');
-      expect(change.tabIndex).toBe(0);
-      expect(shadow().querySelector('ul')).toBeNull();
-      expect(shadow().querySelector('.diff')?.textContent).toBe('Die Kinder spieltspielen.');
+      const view = within(shadowRoot());
+      expect(view.getByRole('deletion')).toHaveTextContent('spielt');
+      expect(view.getByRole('insertion')).toHaveTextContent('spielen');
+      expect(change).toHaveAttribute('tabindex', '0');
+      expect(view.queryByRole('list')).not.toBeInTheDocument();
+      expect(view.getByRole('group', { name: 'Corrected text' })).toHaveTextContent(
+        /^Die Kinder spieltspielen\.$/,
+      );
     });
 
-    it('is hidden until hovered, then shows the reason as text', () => {
+    it('is hidden until hovered, then shows the reason as text', async () => {
+      const user = userEvent.setup();
       const { change, tooltip } = open();
-      expect(tooltip.hidden).toBe(true);
+      expect(tooltip).not.toBeVisible();
 
-      change.querySelector('del')?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      expect(tooltip.hidden).toBe(false);
-      expect(tooltip.textContent).toBe('verb <i>agreement</i>');
-      expect(tooltip.querySelector('i')).toBeNull();
-      expect(change.getAttribute('aria-describedby')).toBe(tooltip.id);
+      await user.hover(within(shadowRoot()).getByRole('deletion'));
+      expect(tooltip).toBeVisible();
+      expect(tooltip).toHaveTextContent('verb <i>agreement</i>');
+      expect(
+        within(shadowRoot()).queryByText('agreement', { selector: 'i' }),
+      ).not.toBeInTheDocument();
+      expect(change).toHaveAttribute('aria-describedby', tooltip.id);
 
-      change.querySelector('ins')?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      expect(tooltip.hidden).toBe(false);
+      await user.hover(within(shadowRoot()).getByRole('insertion'));
+      expect(tooltip).toBeVisible();
     });
 
-    it('hides when the pointer leaves the text or moves to unchanged text', () => {
+    it('hides when the pointer leaves the text or moves to unchanged text', async () => {
+      const user = userEvent.setup();
       const { change, tooltip } = open();
-      change.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      shadow()
-        .querySelector('.equal')
-        ?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      expect(tooltip.hidden).toBe(true);
-      expect(change.hasAttribute('aria-describedby')).toBe(false);
+      await user.hover(change);
+      await user.hover(within(shadowRoot()).getByText('Die Kinder'));
+      expect(tooltip).not.toBeVisible();
+      expect(change).not.toHaveAttribute('aria-describedby');
 
-      change.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      shadow().querySelector('.diff')?.dispatchEvent(new MouseEvent('mouseleave'));
-      expect(tooltip.hidden).toBe(true);
+      await user.hover(change);
+      await user.unhover(within(shadowRoot()).getByRole('group', { name: 'Corrected text' }));
+      expect(tooltip).not.toBeVisible();
     });
 
     it('shows on keyboard focus and hides on blur', () => {
       const { change, tooltip } = open();
-      change.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
-      expect(tooltip.hidden).toBe(false);
-      change.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
-      expect(tooltip.hidden).toBe(true);
+      change.focus();
+      expect(tooltip).toBeVisible();
+      change.blur();
+      expect(tooltip).not.toBeVisible();
     });
   });
 
   it('says so when nothing changed', () => {
     const modal = createModal(document);
     modal.showResult('a', 'a', []);
-    expect(shadow().textContent).toContain('No corrections needed.');
+    expect(within(shadowRoot()).getByText('No corrections needed.')).toBeInTheDocument();
   });
 
   it('closes via the Close button', async () => {
+    const user = userEvent.setup();
     const modal = createModal(document);
     modal.showResult('a', 'b', []);
-    shadow().querySelector<HTMLButtonElement>('button.primary')?.click();
+    await user.click(within(shadowRoot()).getByRole('button', { name: 'Apply correction' }));
     await modal.closed;
-    expect(document.querySelector('voran-root')).toBeNull();
+    expect(hosts()).toHaveLength(0);
   });
 
   it('labels the primary button by what it does', () => {
     const modal = createModal(document);
     modal.showResult('a', 'b', []);
-    expect(shadow().querySelector('button.primary')?.textContent).toBe('Apply correction');
+    expect(
+      within(shadowRoot()).getByRole('button', { name: 'Apply correction' }),
+    ).toBeInTheDocument();
     modal.showResult('a', 'a', []);
-    expect(shadow().querySelector('button.primary')?.textContent).toBe('Close');
+    expect(within(shadowRoot()).getByRole('button', { name: 'Close' })).toBeInTheDocument();
   });
 
   it('draws a visible border around the dialog', () => {
     createModal(document);
-    const css = shadow().querySelector('style')?.textContent ?? '';
-    expect(css).toMatch(/\.dialog\s*\{[^}]*border: 1px solid/);
+    const css = within(shadowRoot()).getByText(/\.dialog/, { selector: 'style', ignore: false });
+    expect(css).toHaveTextContent(/\.dialog\s*\{[^}]*border: 1px solid/);
   });
 
   it('closes on Escape and removes the listener', async () => {
+    const user = userEvent.setup();
     const modal = createModal(document);
     modal.showError('x');
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
-    expect(document.querySelector('voran-root')).not.toBeNull();
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(hosts()).toHaveLength(1);
+    await user.keyboard('{Escape}');
     await modal.closed;
-    expect(document.querySelector('voran-root')).toBeNull();
+    expect(hosts()).toHaveLength(0);
   });
 
   it('closes on backdrop click but not on dialog click', async () => {
+    const user = userEvent.setup();
     const modal = createModal(document);
     modal.showError('x');
-    shadow()
-      .querySelector('.dialog')
-      ?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-    expect(document.querySelector('voran-root')).not.toBeNull();
-    shadow()
-      .querySelector('.backdrop')
-      ?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    await user.click(within(shadowRoot()).getByRole('dialog'));
+    expect(hosts()).toHaveLength(1);
+    await user.click(within(shadowRoot()).getByRole('presentation'));
     await modal.closed;
-    expect(document.querySelector('voran-root')).toBeNull();
+    expect(hosts()).toHaveLength(0);
   });
 
-  it('shows an error with an optional action', () => {
+  it('shows an error with an optional action', async () => {
+    const user = userEvent.setup();
     const modal = createModal(document);
     const run = vi.fn();
     modal.showError('No API key set.', { label: 'Open options', run });
-    expect(shadow().querySelector('.error')?.textContent).toBe('No API key set.');
-    const buttons = [...shadow().querySelectorAll('button')];
-    expect(buttons.map((b) => b.textContent)).toEqual(['Open options', 'Close']);
-    buttons[0]?.click();
+    expect(within(shadowRoot()).getByText('No API key set.')).toBeInTheDocument();
+    expect(
+      within(shadowRoot())
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['Open options', 'Close']);
+    await user.click(within(shadowRoot()).getByRole('button', { name: 'Open options' }));
     expect(run).toHaveBeenCalledOnce();
 
     modal.showError('Plain error');
-    expect(shadow().querySelectorAll('button')).toHaveLength(1);
+    expect(within(shadowRoot()).getAllByRole('button')).toHaveLength(1);
   });
 });
 
@@ -189,43 +200,43 @@ describe('showToast', () => {
   it('shows then removes the toast', () => {
     vi.useFakeTimers();
     showToast(document, 'Copied', 1000);
-    expect(shadow().querySelector('.toast')?.textContent).toBe('Copied');
+    expect(within(shadowRoot()).getByText('Copied')).toBeInTheDocument();
     vi.advanceTimersByTime(1000);
-    expect(document.querySelector('voran-root')).toBeNull();
+    expect(hosts()).toHaveLength(0);
   });
 });
 
 describe('showPending', () => {
   it('shows a non-modal pill until dismissed', () => {
     const dismiss = showPending(document);
-    expect(shadow().textContent).toContain('Checking');
-    expect(shadow().querySelector('.backdrop')).toBeNull();
-    expect(shadow().querySelector<HTMLElement>('.toast')?.style.left).toBe('');
+    const view = within(shadowRoot());
+    expect(view.getByRole('status')).toHaveTextContent('Checking');
+    expect(view.queryByRole('presentation')).not.toBeInTheDocument();
+    expect(view.getByRole('status')).not.toHaveAttribute('style');
     dismiss();
-    expect(document.querySelector('voran-root')).toBeNull();
+    expect(hosts()).toHaveLength(0);
   });
 
   it('appears next to the mouse when a point is given', () => {
     const dismiss = showPending(document, { x: 100, y: 200 });
-    const pill = shadow().querySelector<HTMLElement>('.toast');
-    expect(pill?.style.left).toBe('112px');
-    expect(pill?.style.top).toBe('216px');
-    expect(pill?.style.bottom).toBe('auto');
+    expect(within(shadowRoot()).getByRole('status')).toHaveStyle({
+      left: '112px',
+      top: '216px',
+      bottom: 'auto',
+    });
     dismiss();
   });
 
   it('covers the text when given an anchor', () => {
     const dismiss = showPending(document, { top: 300, left: 100, width: 200, height: 20 });
-    const pill = shadow().querySelector<HTMLElement>('.toast');
     // jsdom reports a zero-size pill: centred on the anchor's centre (200, 310).
-    expect(pill?.style.left).toBe('200px');
-    expect(pill?.style.top).toBe('310px');
+    expect(within(shadowRoot()).getByRole('status')).toHaveStyle({ left: '200px', top: '310px' });
     dismiss();
   });
 
   it('keeps the corner pill for an anchor without area', () => {
     const dismiss = showPending(document, { top: 0, left: 0, width: 0, height: 0 });
-    expect(shadow().querySelector<HTMLElement>('.toast')?.style.left).toBe('');
+    expect(within(shadowRoot()).getByRole('status')).not.toHaveAttribute('style');
     dismiss();
   });
 
@@ -234,9 +245,9 @@ describe('showPending', () => {
       x: window.innerWidth + 500,
       y: window.innerHeight + 500,
     });
-    const pill = shadow().querySelector<HTMLElement>('.toast');
-    expect(Number(pill?.style.left.replace('px', '') ?? '')).toBeLessThanOrEqual(window.innerWidth);
-    expect(Number(pill?.style.top.replace('px', '') ?? '')).toBeLessThanOrEqual(window.innerHeight);
+    const pill = within(shadowRoot()).getByRole('status');
+    expect(pixels(getComputedStyle(pill).left)).toBeLessThanOrEqual(window.innerWidth);
+    expect(pixels(getComputedStyle(pill).top)).toBeLessThanOrEqual(window.innerHeight);
     dismiss();
   });
 });
@@ -245,46 +256,42 @@ describe('showApproval', () => {
   it('shows only a checkmark centred over the anchor, then removes itself', () => {
     vi.useFakeTimers();
     showApproval(document, { top: 300, left: 100, width: 200, height: 20 }, 1000);
-    const badge = shadow().querySelector<HTMLElement>('.approval');
-    expect(badge?.textContent).toBe('✓');
-    expect(badge?.getAttribute('aria-label')).toBe('Text is correct');
-    expect(badge?.getAttribute('role')).toBe('status');
-    expect(badge?.style.top).toBe('296px');
-    expect(shadow().querySelector('.backdrop')).toBeNull();
+    const view = within(shadowRoot());
+    const badge = view.getByRole('status', { name: 'Text is correct' });
+    expect(badge).toHaveTextContent('✓');
+    expect(badge).toHaveStyle({ top: '296px' });
+    expect(view.queryByRole('presentation')).not.toBeInTheDocument();
     vi.advanceTimersByTime(1000);
-    expect(document.querySelector('voran-root')).toBeNull();
+    expect(hosts()).toHaveLength(0);
   });
 
   it('treats a real DOMRect as an anchor, not a mouse point', () => {
     vi.useFakeTimers();
     showApproval(document, new DOMRect(100, 300, 200, 20));
-    const badge = shadow().querySelector<HTMLElement>('.approval');
-    expect(badge?.style.top).toBe('296px');
-    expect(badge?.style.left).toBe('200px');
+    expect(within(shadowRoot()).getByRole('status')).toHaveStyle({ top: '296px', left: '200px' });
   });
 
   it('appears where the pending pill was when given a mouse point', () => {
     vi.useFakeTimers();
     showApproval(document, { x: 100, y: 200 });
-    const badge = shadow().querySelector<HTMLElement>('.approval');
-    expect(badge?.style.top).toBe('216px');
-    expect(badge?.style.left).toBe('126px');
+    expect(within(shadowRoot()).getByRole('status')).toHaveStyle({ top: '216px', left: '126px' });
   });
 
   it('falls back to the viewport centre without a usable anchor', () => {
     vi.useFakeTimers();
     showApproval(document, null);
-    const badge = shadow().querySelector<HTMLElement>('.approval');
-    expect(badge?.style.top).toBe(`${String(window.innerHeight / 2)}px`);
+    expect(within(shadowRoot()).getByRole('status')).toHaveStyle({
+      top: `${String(window.innerHeight / 2)}px`,
+    });
     showApproval(document, { top: 0, left: 0, width: 0, height: 0 });
-    expect(document.querySelectorAll('voran-root')).toHaveLength(2);
+    expect(hosts()).toHaveLength(2);
   });
 
   it('keeps the badge on screen when the anchor is above the viewport', () => {
     vi.useFakeTimers();
     showApproval(document, { top: -500, left: -500, width: 10, height: 10 });
-    const badge = shadow().querySelector<HTMLElement>('.approval');
-    expect(badge?.style.top).toBe('8px');
-    expect(Number(badge?.style.left.replace('px', '') ?? -1)).toBeGreaterThan(0);
+    const badge = within(shadowRoot()).getByRole('status');
+    expect(badge).toHaveStyle({ top: '8px' });
+    expect(pixels(getComputedStyle(badge).left)).toBeGreaterThan(0);
   });
 });

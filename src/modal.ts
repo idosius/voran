@@ -148,6 +148,8 @@ const SEGMENT_TAG = { add: 'ins', remove: 'del', equal: 'span' } as const;
 function renderDiff(doc: Document, segments: readonly DiffSegment[]): HTMLElement {
   const container = el(doc, 'div', 'diff');
   container.dir = 'auto';
+  container.setAttribute('role', 'group');
+  container.setAttribute('aria-label', 'Corrected text');
   for (const segment of segments) {
     container.append(el(doc, SEGMENT_TAG[segment.kind], segment.kind, visibleText(segment)));
   }
@@ -157,6 +159,8 @@ function renderDiff(doc: Document, segments: readonly DiffSegment[]): HTMLElemen
 function renderSegments(doc: Document, segments: readonly Segment[]): HTMLElement {
   const container = el(doc, 'div', 'diff');
   container.dir = 'auto';
+  container.setAttribute('role', 'group');
+  container.setAttribute('aria-label', 'Corrected text');
   for (const segment of segments) {
     if (!isChangedSegment(segment)) {
       container.append(el(doc, 'span', 'equal', segment.text));
@@ -164,6 +168,8 @@ function renderSegments(doc: Document, segments: readonly Segment[]): HTMLElemen
     }
     const change = el(doc, 'span', 'change');
     change.tabIndex = 0;
+    change.setAttribute('role', 'group');
+    change.setAttribute('aria-label', `Correction: ${segment.original} → ${segment.fixed}`);
     change.dataset['reason'] = segment.reason;
     if (segment.original !== '') {
       const text = visibleText({ kind: 'remove', text: segment.original });
@@ -231,6 +237,7 @@ function attachTooltip(doc: Document, tooltip: HTMLElement, diff: HTMLElement): 
 export function createModal(doc: Document): Modal {
   const { host, root } = mountHost(doc);
   const backdrop = el(doc, 'div', 'backdrop');
+  backdrop.setAttribute('role', 'presentation');
   const dialog = el(doc, 'div', 'dialog');
   dialog.setAttribute('role', 'dialog');
   dialog.setAttribute('aria-modal', 'true');
