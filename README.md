@@ -21,7 +21,7 @@ npm run build
 
 ## Usage
 
-Select text, right-click, choose **Voran**. Close the dialog with the Close button, Esc, or a click outside it.
+Select text, right-click, choose **Voran**. Close the dialog with the button (**Apply correction** when changes are proposed, **Close** otherwise), Esc, or a click outside it. All three apply the correction.
 
 Replacement depends on where the text was selected:
 
@@ -31,7 +31,7 @@ Replacement depends on where the text was selected:
 | Read-only page text                      | Corrected text is copied to the clipboard        |
 | Text changed while the dialog was open   | Corrected text is copied to the clipboard        |
 
-If nothing needs correcting, no dialog opens. A green checkmark with "Jawohl!" hovers briefly over the text and the text is left alone. While waiting for Claude, a small "Checking…" pill shows in the corner.
+If nothing needs correcting, no dialog opens. A green checkmark appears briefly over the text and the text is left alone. While waiting for Claude, a small "Checking…" pill shows over the selected text.
 
 ## How it works
 
@@ -92,7 +92,7 @@ Create an HTML file with a `<textarea>`, an `<input>`, a `<div contenteditable>`
 - [ ] Dialog shows an inline diff (struck-through removals, highlighted additions). Hovering or focusing a correction shows its reason in a tooltip; no bullet list.
 - [ ] Textarea, input, contenteditable: text is replaced after closing. In contenteditable and textarea, Ctrl/Cmd+Z restores the original.
 - [ ] `<p>`: corrected text is on the clipboard and a toast appears.
-- [ ] Already-correct text: no dialog, green checkmark and "Jawohl!" over the text, nothing changes.
+- [ ] Already-correct text: no dialog, green checkmark over the text, nothing changes.
 - [ ] Wrong API key: error shown, nothing changes.
 - [ ] No API key: error with an **Open options** button.
 - [ ] Selection over 8000 characters: error, no request sent.

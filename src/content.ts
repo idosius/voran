@@ -1,6 +1,14 @@
 import { MAX_INPUT_CHARS } from './constants';
 import { type BackgroundRequest, type FixResponse, isStartMessage } from './messages';
-import { createModal, type ErrorAction, showApproval, showPending, showToast } from './modal';
+import {
+  createModal,
+  type Anchor,
+  type ErrorAction,
+  type Point,
+  showApproval,
+  showPending,
+  showToast,
+} from './modal';
 import { anchorRect, applyReplacement, captureTarget, type Target } from './replace';
 
 const LOADED_FLAG = '__voranLoaded';
@@ -33,7 +41,18 @@ async function showErrorModal(message: string, action?: ErrorAction): Promise<vo
   await modal.closed;
 }
 
-async function run(selectionText: string, captured: Target | null): Promise<void> {
+// Status feedback is drawn over the selected text; the mouse position is the fallback when the
+// selection has no usable box (e.g. it was cleared while waiting).
+function statusSpot(target: Target, point: Point | null): Anchor | Point | null {
+  const rect = anchorRect(document, target);
+  return rect !== null && (rect.width > 0 || rect.height > 0) ? rect : point;
+}
+
+async function run(
+  selectionText: string,
+  captured: Target | null,
+  point: Point | null,
+): Promise<void> {
   const target: Target =
     captured === null || captured.original.trim() === ''
       ? { kind: 'readonly', original: selectionText }
@@ -44,7 +63,7 @@ async function run(selectionText: string, captured: Target | null): Promise<void
     return;
   }
 
-  const dismissPending = showPending(document);
+  const dismissPending = showPending(document, statusSpot(target, point));
   const response = await requestFix(target.original);
   dismissPending();
   if (!response.ok) {
@@ -64,7 +83,7 @@ async function run(selectionText: string, captured: Target | null): Promise<void
 
   const { fixed, segments } = response.result;
   if (fixed === target.original) {
-    showApproval(document, anchorRect(document, target));
+    showApproval(document, statusSpot(target, point));
     return;
   }
 
@@ -81,13 +100,14 @@ async function run(selectionText: string, captured: Target | null): Promise<void
 }
 
 function init(): void {
-  const state: { target: Target | null } = { target: null };
+  const state: { target: Target | null; point: Point | null } = { target: null, point: null };
 
   // The selection must be captured at right-click time: opening the modal steals focus.
   document.addEventListener(
     'contextmenu',
-    () => {
+    (event) => {
       state.target = captureTarget(document);
+      state.point = { x: event.clientX, y: event.clientY };
     },
     { capture: true },
   );
@@ -97,8 +117,10 @@ function init(): void {
       return;
     }
     const captured = state.target ?? captureTarget(document);
+    const point = state.point;
     state.target = null;
-    void run(message.selectionText, captured);
+    state.point = null;
+    void run(message.selectionText, captured, point);
   });
 }
 

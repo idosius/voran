@@ -15,7 +15,8 @@ const CSS = `
   display: flex; flex-direction: column; gap: 12px; padding: 16px 20px;
   overflow: auto; border-radius: 10px;
   background: Canvas; color: CanvasText;
-  box-shadow: 0 10px 40px rgb(0 0 0 / 35%);
+  border: 1px solid color-mix(in srgb, CanvasText 30%, transparent);
+  box-shadow: 0 0 0 1px light-dark(rgb(0 0 0 / 12%), rgb(255 255 255 / 22%)), 0 10px 40px rgb(0 0 0 / 35%);
 }
 h2 { margin: 0; font-size: 16px; }
 .diff {
@@ -49,7 +50,14 @@ button {
   border: 1px solid color-mix(in srgb, CanvasText 30%, transparent);
   background: ButtonFace; color: ButtonText;
 }
-button.primary { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+button:hover { background: color-mix(in srgb, ButtonFace 85%, CanvasText); }
+button:focus-visible { outline: 2px solid #1a73e8; outline-offset: 2px; }
+button.primary {
+  padding: 8px 18px; font-weight: 600;
+  background: #1a73e8; border-color: #1a73e8; color: #fff;
+}
+button.primary:hover { background: #1765cc; border-color: #1765cc; }
+button.apply::before { content: '\\2713'; margin-right: 6px; }
 .pending::before {
   content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 8px;
   border: 2px solid #fff; border-right-color: transparent; border-radius: 50%;
@@ -57,14 +65,10 @@ button.primary { background: #1a73e8; border-color: #1a73e8; color: #fff; }
 }
 .approval {
   position: fixed; z-index: 2147483647; pointer-events: none;
-  display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 8px;
-  border-radius: 999px; background: #1e8e3e; color: #fff;
-  font: 600 14px system-ui, sans-serif; box-shadow: 0 4px 16px rgb(0 0 0 / 30%);
+  display: grid; place-items: center; width: 28px; height: 28px;
+  border-radius: 50%; background: #1e8e3e; color: #fff;
+  font: 700 16px system-ui, sans-serif; box-shadow: 0 4px 16px rgb(0 0 0 / 30%);
   animation: approve 1.6s ease-out forwards;
-}
-.approval .check {
-  display: grid; place-items: center; width: 22px; height: 22px;
-  border-radius: 50%; background: #fff; color: #1e8e3e; font-size: 14px;
 }
 @keyframes approve {
   0% { opacity: 0; transform: translate(-50%, 6px); }
@@ -259,8 +263,15 @@ export function createModal(doc: Document): Modal {
     }
   });
 
-  function render(body: readonly HTMLElement[], extra?: ErrorAction): void {
-    const closeButton = el(doc, 'button', 'primary', 'Close');
+  function render(body: readonly HTMLElement[], extra?: ErrorAction, applies = false): void {
+    // Closing the dialog is what applies the correction, so say so on the primary button.
+    const closeButton = el(
+      doc,
+      'button',
+      applies ? 'primary apply' : 'primary',
+      applies ? 'Apply correction' : 'Close',
+    );
+    closeButton.type = 'button';
     closeButton.addEventListener('click', close);
     const actions = el(doc, 'div', 'actions');
     if (extra !== undefined) {
@@ -283,12 +294,12 @@ export function createModal(doc: Document): Modal {
         return;
       }
       if (segments.length === 0) {
-        render([renderDiff(doc, diff)]);
+        render([renderDiff(doc, diff)], undefined, true);
         return;
       }
       const container = renderSegments(doc, segments);
       attachTooltip(doc, tooltip, container);
-      render([container]);
+      render([container], undefined, true);
     },
     showError: (message, action): void => {
       render([el(doc, 'p', 'message error', message)], action);
@@ -305,46 +316,87 @@ export function showToast(doc: Document, message: string, durationMs = 3000): vo
 }
 
 /**
-Non-modal "working" pill while a request is in flight. Returns a function that removes it.
+A viewport position in CSS pixels, e.g. where the user right-clicked.
 */
-export function showPending(doc: Document): () => void {
+export interface Point {
+  readonly x: number;
+  readonly y: number;
+}
+
+export type Anchor = Pick<DOMRectReadOnly, 'top' | 'left' | 'width' | 'height'>;
+
+const EDGE_PX = 8;
+// Keeps the indicator clear of the mouse cursor.
+const POINTER_OFFSET_X_PX = 12;
+const POINTER_OFFSET_Y_PX = 16;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), Math.max(max, min));
+}
+
+function hasArea(at: Anchor): boolean {
+  return at.width > 0 || at.height > 0;
+}
+
+/**
+Non-modal "working" pill while a request is in flight. Returns a function that removes it.
+Shown centred over the text when given an `Anchor`, next to the mouse for a `Point`, and in the
+bottom-right corner otherwise.
+*/
+export function showPending(doc: Document, at?: Anchor | Point | null): () => void {
   const { host, root } = mountHost(doc);
   const pill = el(doc, 'div', 'toast pending', 'Checking…');
   pill.setAttribute('role', 'status');
   root.append(pill);
+  if (at !== undefined && at !== null && (!('width' in at) || hasArea(at))) {
+    const view = doc.defaultView;
+    const { width, height } = pill.getBoundingClientRect();
+    const [wantedLeft, wantedTop] =
+      'width' in at
+        ? [at.left + (at.width - width) / 2, at.top + (at.height - height) / 2]
+        : [at.x + POINTER_OFFSET_X_PX, at.y + POINTER_OFFSET_Y_PX];
+    const left = clamp(wantedLeft, EDGE_PX, (view?.innerWidth ?? 0) - width - EDGE_PX);
+    const top = clamp(wantedTop, EDGE_PX, (view?.innerHeight ?? 0) - height - EDGE_PX);
+    pill.style.pointerEvents = 'none';
+    pill.style.right = 'auto';
+    pill.style.bottom = 'auto';
+    pill.style.left = `${String(left)}px`;
+    pill.style.top = `${String(top)}px`;
+  }
   return (): void => {
     host.remove();
   };
 }
 
-const APPROVAL_GAP_PX = 8;
-const APPROVAL_EDGE_PX = 8;
+const APPROVAL_SIZE_PX = 28;
 
 /**
-Green checkmark with "Jawohl!" hovering above the checked text, for text that needs no fix.
-Falls back to the viewport centre when there is no usable anchor rectangle.
+Green checkmark for text that needs no fix. Appears centred over the checked text when given an
+`Anchor`, next to the mouse for a `Point`, and in the viewport centre otherwise.
 */
-export function showApproval(
-  doc: Document,
-  anchor: Pick<DOMRectReadOnly, 'top' | 'left' | 'width' | 'height'> | null,
-  durationMs = 1600,
-): void {
+export function showApproval(doc: Document, at: Anchor | Point | null, durationMs = 1600): void {
   const { host, root } = mountHost(doc);
-  const badge = el(doc, 'div', 'approval');
+  const badge = el(doc, 'div', 'approval', '✓');
   badge.setAttribute('role', 'status');
-  badge.append(el(doc, 'span', 'check', '✓'), el(doc, 'span', undefined, 'Jawohl!'));
+  badge.setAttribute('aria-label', 'Text is correct');
   root.append(badge);
 
   const view = doc.defaultView;
   const viewWidth = view?.innerWidth ?? 0;
   const viewHeight = view?.innerHeight ?? 0;
-  const hasAnchor = anchor !== null && (anchor.width > 0 || anchor.height > 0);
-  const centreX = hasAnchor ? anchor.left + anchor.width / 2 : viewWidth / 2;
-  const top = hasAnchor ? anchor.top - APPROVAL_GAP_PX : viewHeight / 2;
+  const half = APPROVAL_SIZE_PX / 2;
+  let centreX = viewWidth / 2;
+  let top = viewHeight / 2;
+  if (at !== null && !('width' in at)) {
+    centreX = at.x + POINTER_OFFSET_X_PX + half;
+    top = at.y + POINTER_OFFSET_Y_PX;
+  } else if (at !== null && hasArea(at)) {
+    centreX = at.left + at.width / 2;
+    top = at.top + (at.height - APPROVAL_SIZE_PX) / 2;
+  }
   // translate(-50%) in the animation centres the badge on `left`; keep that centre on screen.
-  const left = Math.min(Math.max(centreX, APPROVAL_EDGE_PX + 60), Math.max(viewWidth - 60, 60));
-  badge.style.left = `${String(left)}px`;
-  badge.style.top = `${String(Math.max(top, APPROVAL_EDGE_PX))}px`;
+  badge.style.left = `${String(clamp(centreX, EDGE_PX + half, viewWidth - EDGE_PX - half))}px`;
+  badge.style.top = `${String(clamp(top, EDGE_PX, viewHeight - APPROVAL_SIZE_PX - EDGE_PX))}px`;
   badge.style.transformOrigin = 'center';
   setTimeout(() => {
     host.remove();

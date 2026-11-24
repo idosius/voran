@@ -132,6 +132,20 @@ describe('createModal', () => {
     expect(document.querySelector('voran-root')).toBeNull();
   });
 
+  it('labels the primary button by what it does', () => {
+    const modal = createModal(document);
+    modal.showResult('a', 'b', []);
+    expect(shadow().querySelector('button.primary')?.textContent).toBe('Apply correction');
+    modal.showResult('a', 'a', []);
+    expect(shadow().querySelector('button.primary')?.textContent).toBe('Close');
+  });
+
+  it('draws a visible border around the dialog', () => {
+    createModal(document);
+    const css = shadow().querySelector('style')?.textContent ?? '';
+    expect(css).toMatch(/\.dialog\s*\{[^}]*border: 1px solid/);
+  });
+
   it('closes on Escape and removes the listener', async () => {
     const modal = createModal(document);
     modal.showError('x');
@@ -186,23 +200,75 @@ describe('showPending', () => {
     const dismiss = showPending(document);
     expect(shadow().textContent).toContain('Checking');
     expect(shadow().querySelector('.backdrop')).toBeNull();
+    expect(shadow().querySelector<HTMLElement>('.toast')?.style.left).toBe('');
     dismiss();
     expect(document.querySelector('voran-root')).toBeNull();
+  });
+
+  it('appears next to the mouse when a point is given', () => {
+    const dismiss = showPending(document, { x: 100, y: 200 });
+    const pill = shadow().querySelector<HTMLElement>('.toast');
+    expect(pill?.style.left).toBe('112px');
+    expect(pill?.style.top).toBe('216px');
+    expect(pill?.style.bottom).toBe('auto');
+    dismiss();
+  });
+
+  it('covers the text when given an anchor', () => {
+    const dismiss = showPending(document, { top: 300, left: 100, width: 200, height: 20 });
+    const pill = shadow().querySelector<HTMLElement>('.toast');
+    // jsdom reports a zero-size pill: centred on the anchor's centre (200, 310).
+    expect(pill?.style.left).toBe('200px');
+    expect(pill?.style.top).toBe('310px');
+    dismiss();
+  });
+
+  it('keeps the corner pill for an anchor without area', () => {
+    const dismiss = showPending(document, { top: 0, left: 0, width: 0, height: 0 });
+    expect(shadow().querySelector<HTMLElement>('.toast')?.style.left).toBe('');
+    dismiss();
+  });
+
+  it('stays on screen when the mouse is at the viewport edge', () => {
+    const dismiss = showPending(document, {
+      x: window.innerWidth + 500,
+      y: window.innerHeight + 500,
+    });
+    const pill = shadow().querySelector<HTMLElement>('.toast');
+    expect(Number(pill?.style.left.replace('px', '') ?? '')).toBeLessThanOrEqual(window.innerWidth);
+    expect(Number(pill?.style.top.replace('px', '') ?? '')).toBeLessThanOrEqual(window.innerHeight);
+    dismiss();
   });
 });
 
 describe('showApproval', () => {
-  it('shows a checkmark and Jawohl! above the anchor, then removes itself', () => {
+  it('shows only a checkmark centred over the anchor, then removes itself', () => {
     vi.useFakeTimers();
     showApproval(document, { top: 300, left: 100, width: 200, height: 20 }, 1000);
     const badge = shadow().querySelector<HTMLElement>('.approval');
-    expect(badge?.textContent).toContain('✓');
-    expect(badge?.textContent).toContain('Jawohl!');
+    expect(badge?.textContent).toBe('✓');
+    expect(badge?.getAttribute('aria-label')).toBe('Text is correct');
     expect(badge?.getAttribute('role')).toBe('status');
-    expect(badge?.style.top).toBe('292px');
+    expect(badge?.style.top).toBe('296px');
     expect(shadow().querySelector('.backdrop')).toBeNull();
     vi.advanceTimersByTime(1000);
     expect(document.querySelector('voran-root')).toBeNull();
+  });
+
+  it('treats a real DOMRect as an anchor, not a mouse point', () => {
+    vi.useFakeTimers();
+    showApproval(document, new DOMRect(100, 300, 200, 20));
+    const badge = shadow().querySelector<HTMLElement>('.approval');
+    expect(badge?.style.top).toBe('296px');
+    expect(badge?.style.left).toBe('200px');
+  });
+
+  it('appears where the pending pill was when given a mouse point', () => {
+    vi.useFakeTimers();
+    showApproval(document, { x: 100, y: 200 });
+    const badge = shadow().querySelector<HTMLElement>('.approval');
+    expect(badge?.style.top).toBe('216px');
+    expect(badge?.style.left).toBe('126px');
   });
 
   it('falls back to the viewport centre without a usable anchor', () => {
