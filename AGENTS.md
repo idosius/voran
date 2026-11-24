@@ -20,6 +20,8 @@ npx vitest run tests/diff.test.ts            # single test file
 npx vitest run -t "name substring"           # single test by name
 ```
 
+Hooks: `.husky/pre-commit` runs lint-staged (eslint --fix + prettier on staged files) then `npm run typecheck`. `.husky/commit-msg` enforces Conventional Commits (`type(scope)!: subject`). `.claude/settings.json` runs prettier + eslint --fix after each Edit/Write (`.claude/hooks/format-lint.sh`) and typecheck on Stop (`.claude/hooks/typecheck.sh`). Bypass git hooks with `--no-verify` only in emergencies.
+
 Node >= 22. After a rebuild, reload the extension on `chrome://extensions` and reload the tested tab.
 
 ## Architecture

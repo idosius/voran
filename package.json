@@ -17,6 +17,13 @@
     "test": "vitest run --coverage",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run test"
   },
+  "lint-staged": {
+    "*.ts": [
+      "eslint --fix --max-warnings 0",
+      "prettier --write"
+    ],
+    "*.{js,mjs,json,html,md}": "prettier --write"
+  },
   "dependencies": {
     "diff": "^9.0.0"
   },
