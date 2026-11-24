@@ -62,14 +62,14 @@ async function run(selectionText: string, captured: Target | null): Promise<void
     return;
   }
 
-  const { fixed, notes } = response.result;
+  const { fixed, segments } = response.result;
   if (fixed === target.original) {
     showApproval(document, anchorRect(document, target));
     return;
   }
 
   const modal = createModal(document);
-  modal.showResult(target.original, fixed, notes);
+  modal.showResult(target.original, fixed, segments);
   await modal.closed;
 
   const outcome = await applyReplacement(document, target, fixed);

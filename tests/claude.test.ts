@@ -24,14 +24,15 @@ function fetchReturning(response: Response | Error): typeof fetch {
 
 describe('fixGerman', () => {
   it('sends the expected request and returns the tool input', async () => {
-    const fetchMock = vi.fn(() =>
-      Promise.resolve(
-        jsonResponse(toolUse({ fixed: 'Die Kinder spielen.', notes: ['spielt -> spielen'] })),
-      ),
-    );
+    const segments = [
+      { text: 'Die Kinder ' },
+      { original: 'spielt', fixed: 'spielen', reason: 'verb agreement' },
+      { text: '.' },
+    ];
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(toolUse({ segments }))));
     const result = await fixGerman('Die Kinder spielt.', 'sk-test', fetchMock);
 
-    expect(result).toEqual({ fixed: 'Die Kinder spielen.', notes: ['spielt -> spielen'] });
+    expect(result).toEqual({ fixed: 'Die Kinder spielen.', segments });
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('https://api.anthropic.com/v1/messages');
     expect(init.method).toBe('POST');
@@ -44,6 +45,98 @@ describe('fixGerman', () => {
     expect(body['model']).toBe(MODEL);
     expect(body['tool_choice']).toEqual({ type: 'any' });
     expect(body['messages']).toEqual([{ role: 'user', content: 'Die Kinder spielt.' }]);
+  });
+
+  it('realigns corrections onto the real input when the model re-typed unchanged text', async () => {
+    const change = { original: 'spielt', fixed: 'spielen', reason: 'verb agreement' };
+    const segments = [{ text: 'Die  Kinder\u{A0}' }, change, { text: '!' }];
+    const result = await fixGerman(
+      'Die Kinder spielt.',
+      'k',
+      fetchReturning(jsonResponse(toolUse({ segments }))),
+    );
+    expect(result).toEqual({
+      fixed: 'Die Kinder spielen.',
+      segments: [{ text: 'Die Kinder ' }, change, { text: '.' }],
+    });
+  });
+
+  it('anchors a repeated word at the position the model reached', async () => {
+    const change = { original: 'und', fixed: 'oder', reason: 'meaning' };
+    const result = await fixGerman(
+      'und Tee und Kaffee',
+      'k',
+      fetchReturning(jsonResponse(toolUse({ segments: [{ text: 'und Tee ' }, change] }))),
+    );
+    expect(result.fixed).toBe('und Tee oder Kaffee');
+  });
+
+  it('places insertions and drops corrections it cannot find', async () => {
+    const insert = { original: '', fixed: ',', reason: 'comma' };
+    const ghost = { original: 'xyz', fixed: 'abc', reason: 'nope' };
+    const result = await fixGerman(
+      'Ich weiß dass es geht',
+      'k',
+      fetchReturning(jsonResponse(toolUse({ segments: [{ text: 'Ich weiß' }, insert, ghost] }))),
+    );
+    expect(result).toEqual({
+      fixed: 'Ich weiß, dass es geht',
+      segments: [{ text: 'Ich weiß' }, insert, { text: ' dass es geht' }],
+    });
+  });
+
+  it('anchors an insertion by its preceding text when the model re-typed whitespace', async () => {
+    const insert = { original: '', fixed: ',', reason: 'comma' };
+    const result = await fixGerman(
+      'Heute  und morgen weiß dass es geht',
+      'k',
+      fetchReturning(
+        jsonResponse(
+          toolUse({ segments: [{ text: 'Heute und morgen weiß' }, insert, { text: ' dass' }] }),
+        ),
+      ),
+    );
+    expect(result.fixed).toBe('Heute  und morgen weiß, dass es geht');
+  });
+
+  it('keeps later anchors right after dropping an unfindable correction', async () => {
+    const ghost = { original: 'Y', fixed: 'Z', reason: 'nope' };
+    const change = { original: 'und', fixed: 'oder', reason: 'meaning' };
+    const result = await fixGerman(
+      'und Tee X und Kaffee',
+      'k',
+      fetchReturning(
+        jsonResponse(
+          toolUse({
+            segments: [{ text: 'und Tee ' }, ghost, { text: ' ' }, change, { text: ' Kaffee' }],
+          }),
+        ),
+      ),
+    );
+    expect(result.fixed).toBe('und Tee X oder Kaffee');
+  });
+
+  it('errors instead of reporting "correct" when no correction can be placed', async () => {
+    const ghost = { original: 'xyz', fixed: 'abc', reason: 'nope' };
+    await expect(
+      fixGerman('Hallo', 'k', fetchReturning(jsonResponse(toolUse({ segments: [ghost] })))),
+    ).rejects.toThrow(/Unexpected response/);
+  });
+
+  it('ignores no-op corrections', async () => {
+    const noop = { original: 'a', fixed: 'a', reason: 'same' };
+    const result = await fixGerman(
+      'a b',
+      'k',
+      fetchReturning(jsonResponse(toolUse({ segments: [noop, { text: ' b' }] }))),
+    );
+    expect(result).toEqual({ fixed: 'a b', segments: [{ text: 'a b' }] });
+  });
+
+  it('rejects a submit_correction without valid segments', async () => {
+    await expect(
+      fixGerman('a', 'k', fetchReturning(jsonResponse(toolUse({ segments: [{ nope: 1 }] })))),
+    ).rejects.toThrow(/Unexpected response/);
   });
 
   it('rejects over-long input without calling the API', async () => {
@@ -103,7 +196,7 @@ describe('fixGerman', () => {
 });
 
 describe('fixGerman request limits', () => {
-  const okBody = toolUse({ fixed: 'a', notes: [] });
+  const okBody = toolUse({ segments: [{ text: 'a' }] });
 
   it('rejects blank input without calling the API', async () => {
     const fetchMock = vi.fn();
@@ -154,7 +247,7 @@ describe('fixGerman confirm_correct reply', () => {
       'k',
       fetchReturning(jsonResponse(confirmReply())),
     );
-    expect(result).toEqual({ fixed: 'Ich bin müde.', notes: [] });
+    expect(result).toEqual({ fixed: 'Ich bin müde.', segments: [] });
   });
 
   it('offers both tools and forces a tool call', async () => {

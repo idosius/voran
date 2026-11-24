@@ -1,4 +1,5 @@
 import { type DiffSegment, inlineDiff } from './diff';
+import { isChangedSegment, type Segment } from './messages';
 
 const CSS = `
 :host { all: initial; }
@@ -30,8 +31,16 @@ h2 { margin: 0; font-size: 16px; }
   background: rgb(248 81 73 / 25%); color: light-dark(#b42318, #ff8a80);
   text-decoration: line-through;
 }
-ul { margin: 0; padding-left: 20px; }
-li { margin: 2px 0; }
+.change { border-radius: 3px; cursor: help; }
+.change:hover, .change:focus-visible {
+  outline: 2px solid color-mix(in srgb, CanvasText 45%, transparent); outline-offset: 1px;
+}
+.tooltip {
+  position: fixed; z-index: 1; max-width: min(320px, calc(100vw - 16px)); pointer-events: none;
+  padding: 6px 10px; border-radius: 6px; font: 13px/1.4 system-ui, sans-serif;
+  background: #202124; color: #fff; box-shadow: 0 4px 16px rgb(0 0 0 / 35%);
+}
+.tooltip[hidden] { display: none; }
 .message { margin: 0; }
 .error { color: light-dark(#b42318, #ff8a80); }
 .actions { display: flex; justify-content: flex-end; gap: 8px; }
@@ -83,7 +92,8 @@ export interface ErrorAction {
 export interface Modal {
   // Resolves once the user dismisses the dialog.
   readonly closed: Promise<void>;
-  showResult: (original: string, fixed: string, notes: readonly string[]) => void;
+  // `segments` carry the reason per correction; without them only the plain diff is shown.
+  showResult: (original: string, fixed: string, segments: readonly Segment[]) => void;
   showError: (message: string, action?: ErrorAction) => void;
 }
 
@@ -139,6 +149,78 @@ function renderDiff(doc: Document, segments: readonly DiffSegment[]): HTMLElemen
   return container;
 }
 
+function renderSegments(doc: Document, segments: readonly Segment[]): HTMLElement {
+  const container = el(doc, 'div', 'diff');
+  for (const segment of segments) {
+    if (!isChangedSegment(segment)) {
+      container.append(el(doc, 'span', 'equal', segment.text));
+      continue;
+    }
+    const change = el(doc, 'span', 'change');
+    change.tabIndex = 0;
+    change.dataset['reason'] = segment.reason;
+    if (segment.original !== '') {
+      const text = visibleText({ kind: 'remove', text: segment.original });
+      change.append(el(doc, 'del', 'remove', text));
+    }
+    if (segment.fixed !== '') {
+      change.append(el(doc, 'ins', 'add', visibleText({ kind: 'add', text: segment.fixed })));
+    }
+    container.append(change);
+  }
+  return container;
+}
+
+const TOOLTIP_GAP_PX = 6;
+const TOOLTIP_EDGE_PX = 8;
+
+/**
+One shared tooltip for every correction. It is `position: fixed` so the dialog's scroll clipping cannot cut it off.
+*/
+function attachTooltip(doc: Document, tooltip: HTMLElement, diff: HTMLElement): void {
+  let current: HTMLElement | undefined;
+
+  const hide = (): void => {
+    current?.removeAttribute('aria-describedby');
+    current = undefined;
+    tooltip.hidden = true;
+  };
+  const show = (change: HTMLElement): void => {
+    if (change === current) {
+      return;
+    }
+    hide();
+    current = change;
+    tooltip.textContent = change.dataset['reason'] ?? '';
+    tooltip.hidden = false;
+    change.setAttribute('aria-describedby', tooltip.id);
+
+    const rect = change.getBoundingClientRect();
+    const viewWidth = doc.defaultView?.innerWidth ?? 0;
+    const { offsetWidth: width, offsetHeight: height } = tooltip;
+    const centred = rect.left + rect.width / 2 - width / 2;
+    const left = Math.max(TOOLTIP_EDGE_PX, Math.min(centred, viewWidth - width - TOOLTIP_EDGE_PX));
+    const above = rect.top - height - TOOLTIP_GAP_PX;
+    tooltip.style.left = `${String(left)}px`;
+    tooltip.style.top = `${String(above >= TOOLTIP_EDGE_PX ? above : rect.bottom + TOOLTIP_GAP_PX)}px`;
+  };
+  const changeAt = (event: Event): HTMLElement | null =>
+    event.target instanceof Element ? event.target.closest<HTMLElement>('.change') : null;
+
+  const onEnter = (event: Event): void => {
+    const change = changeAt(event);
+    if (change === null) {
+      hide();
+    } else {
+      show(change);
+    }
+  };
+  diff.addEventListener('mouseover', onEnter);
+  diff.addEventListener('focusin', onEnter);
+  diff.addEventListener('mouseleave', hide);
+  diff.addEventListener('focusout', hide);
+}
+
 export function createModal(doc: Document): Modal {
   const { host, root } = mountHost(doc);
   const backdrop = el(doc, 'div', 'backdrop');
@@ -146,7 +228,11 @@ export function createModal(doc: Document): Modal {
   dialog.setAttribute('role', 'dialog');
   dialog.setAttribute('aria-modal', 'true');
   dialog.setAttribute('aria-label', 'Voran');
-  backdrop.append(dialog);
+  const tooltip = el(doc, 'div', 'tooltip');
+  tooltip.id = 'voran-tooltip';
+  tooltip.setAttribute('role', 'tooltip');
+  tooltip.hidden = true;
+  backdrop.append(dialog, tooltip);
   root.append(backdrop);
 
   const { promise: closed, resolve: resolveClosed } = Promise.withResolvers<undefined>();
@@ -180,23 +266,26 @@ export function createModal(doc: Document): Modal {
       actions.append(extraButton);
     }
     actions.append(closeButton);
+    tooltip.hidden = true;
     dialog.replaceChildren(el(doc, 'h2', undefined, 'Voran'), ...body, actions);
     closeButton.focus();
   }
 
   return {
     closed,
-    showResult: (original, fixed, notes): void => {
-      const segments = inlineDiff(original, fixed);
-      if (segments.length === 0) {
+    showResult: (original, fixed, segments): void => {
+      const diff = inlineDiff(original, fixed);
+      if (diff.length === 0) {
         render([el(doc, 'p', 'message', 'No corrections needed.')]);
         return;
       }
-      const list = el(doc, 'ul');
-      for (const note of notes) {
-        list.append(el(doc, 'li', undefined, note));
+      if (segments.length === 0) {
+        render([renderDiff(doc, diff)]);
+        return;
       }
-      render(notes.length > 0 ? [renderDiff(doc, segments), list] : [renderDiff(doc, segments)]);
+      const container = renderSegments(doc, segments);
+      attachTooltip(doc, tooltip, container);
+      render([container]);
     },
     showError: (message, action): void => {
       render([el(doc, 'p', 'message error', message)], action);

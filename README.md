@@ -1,6 +1,6 @@
 # Voran
 
-Chrome extension (Manifest V3). Select German text, right-click, choose **Voran**. Claude Haiku returns a corrected version. A dialog shows an inline word diff (removed words struck through, added words highlighted) and short bullets listing the corrections. When you close the dialog, the corrected text replaces the selection.
+Chrome extension (Manifest V3). Select German text, right-click, choose **Voran**. Claude Haiku returns a corrected version. A dialog shows an inline word diff (removed words struck through, added words highlighted). Hover (or Tab to) a correction to see the reason in a tooltip. When you close the dialog, the corrected text replaces the selection.
 
 ## Requirements
 
@@ -43,7 +43,7 @@ dialog closed -> content script replaces text
 
 - `src/background.ts`: context menu, API key lookup, Claude call. The key never reaches page context.
 - `src/content.ts`: captures the selection on `contextmenu`, drives the dialog, applies the replacement.
-- `src/claude.ts`: Messages API request (model `claude-haiku-5-5`). The model must call one of two tools: `submit_correction` (`fixed`, `notes`, validated) or `confirm_correct` (text already correct). No free text is parsed.
+- `src/claude.ts`: Messages API request (model `claude-haiku-5-5`). The model must call one of two tools: `submit_correction` (ordered `segments`: unchanged `text` or `original`/`fixed`/`reason`, validated; `fixed` is derived) or `confirm_correct` (text already correct). No free text is parsed.
 - `src/diff.ts`: inline word-level diff via the `diff` package.
 - `src/modal.ts`: dialog and toast in a shadow root. All text is inserted with `textContent`; `innerHTML` is banned by lint.
 - `src/replace.ts`: selection capture and replacement for fields, contenteditable and read-only text.
@@ -88,7 +88,7 @@ Create an HTML file with a `<textarea>`, an `<input>`, a `<div contenteditable>`
 > Ich habe gestern ein Buch gelesen, das war sehr interessant gewesen. Die Kinder spielt im Garten.
 
 - [ ] Menu item appears only when text is selected.
-- [ ] Dialog shows an inline diff (struck-through removals, highlighted additions) and at most a few short bullets.
+- [ ] Dialog shows an inline diff (struck-through removals, highlighted additions). Hovering or focusing a correction shows its reason in a tooltip; no bullet list.
 - [ ] Textarea, input, contenteditable: text is replaced after closing. In contenteditable and textarea, Ctrl/Cmd+Z restores the original.
 - [ ] `<p>`: corrected text is on the clipboard and a toast appears.
 - [ ] Already-correct text: no dialog, green checkmark and "Jawohl!" over the text, nothing changes.

@@ -1,5 +1,11 @@
 import { MAX_INPUT_CHARS, MODEL, REQUEST_TIMEOUT_MS } from './constants';
-import { type FixResult, isFixResult, isRecord } from './messages';
+import {
+  type FixResult,
+  isChangedSegment,
+  isRecord,
+  isSegmentList,
+  type Segment,
+} from './messages';
 
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const TOOL_NAME = 'submit_correction';
@@ -11,7 +17,10 @@ Fix spelling, grammar (case, gender, agreement, conjugation, word order), punctu
 Keep meaning, tone, register, formatting, line breaks and surrounding whitespace. Do not rewrite text that is already correct.
 If the text is not German, return it unchanged.
 If the text is already entirely correct, call ${CONFIRM_TOOL_NAME}. Otherwise call ${TOOL_NAME}. Always call exactly one tool.
-"notes": one bullet per distinct correction, at most 10 words each, e.g. "spielt -> spielen (verb agreement)". At most 8 bullets. Empty array if nothing changed.`;
+${TOOL_NAME} takes "segments": the whole text, in order, split into pieces.
+An unchanged piece is {"text"}. A correction is {"original", "fixed", "reason"}: "original" is the exact wrong span, "fixed" its replacement (empty string to delete, empty "original" to insert).
+Joining every "text" and "original" must reproduce the input exactly, including whitespace and line breaks. Keep each correction as small as possible, ideally one word.
+"reason": English, at most 10 words, name the rule, e.g. "verb agreement with plural subject".`;
 
 export class ClaudeError extends Error {
   override readonly name = 'ClaudeError';
@@ -53,14 +62,91 @@ function parseResponse(body: unknown, original: string): FixResult | undefined {
       continue;
     }
     if (block['name'] === CONFIRM_TOOL_NAME) {
-      return { fixed: original, notes: [] };
+      return { fixed: original, segments: [] };
     }
     if (block['name'] === TOOL_NAME) {
       const input = block['input'];
-      return isFixResult(input) ? input : undefined;
+      return isRecord(input) && isSegmentList(input['segments'])
+        ? fromSegments(input['segments'], original)
+        : undefined;
     }
   }
   return undefined;
+}
+
+/**
+Places each correction on the real input. Unchanged pieces are taken from the input itself, not from
+the model's echo, so a model that re-typed text slightly differently (whitespace, quotes) cannot
+break the segments or alter text it did not correct. A correction is anchored where the model's
+running position says it is, else at the next occurrence of its `original`; one that cannot be
+found is dropped. An insertion has no text to anchor on, so it is checked against the tail of the
+unchanged text before it. Returns undefined when corrections were reported but none could be placed.
+*/
+function fromSegments(segments: readonly Segment[], original: string): FixResult | undefined {
+  const aligned: Segment[] = [];
+  let cursor = 0;
+  let expected = 0;
+  let before = '';
+  let reported = 0;
+  for (const segment of segments) {
+    if (!isChangedSegment(segment)) {
+      expected += segment.text.length;
+      before = segment.text;
+      continue;
+    }
+    if (segment.original === segment.fixed) {
+      // Not a correction.
+      expected += segment.original.length;
+      before = '';
+      continue;
+    }
+    reported += 1;
+    const start = Math.max(expected, cursor);
+    const position =
+      segment.original === ''
+        ? locateInsertion(original, start, cursor, before)
+        : original.startsWith(segment.original, start)
+          ? start
+          : original.indexOf(segment.original, cursor);
+    expected += segment.original.length;
+    before = '';
+    if (position === -1) {
+      continue;
+    }
+    if (position > cursor) {
+      aligned.push({ text: original.slice(cursor, position) });
+    }
+    aligned.push(segment);
+    cursor = position + segment.original.length;
+    expected = cursor;
+  }
+  if (reported > 0 && aligned.every((part) => !isChangedSegment(part))) {
+    return undefined;
+  }
+  if (cursor < original.length) {
+    aligned.push({ text: original.slice(cursor) });
+  }
+  const fixed = aligned.map((part) => (isChangedSegment(part) ? part.fixed : part.text)).join('');
+  return { fixed, segments: aligned };
+}
+
+const CONTEXT_CHARS = 12;
+
+/**
+Where an insertion goes: at `start` if the input there really follows the unchanged text the model
+put before it, else after the next occurrence of that text. -1 when the context is nowhere to be found.
+*/
+function locateInsertion(original: string, start: number, cursor: number, before: string): number {
+  const context = before.slice(-CONTEXT_CHARS);
+  const position = Math.min(start, original.length);
+  if (
+    context === '' ||
+    original.slice(Math.max(0, position - context.length), position) === context
+  ) {
+    return position;
+  }
+  const found = original.indexOf(context, cursor);
+  return found === -1 ? -1 : found + context.length;
 }
 
 function isTimeout(error: unknown): boolean {
@@ -81,8 +167,8 @@ export async function fixGerman(
   }
 
   // Output is at most about as long as the input (one token per character is the worst case),
-  // plus room for the notes and the tool-call wrapper.
-  const maxTokens = text.length + 1000;
+  // plus room for the per-segment JSON, the reasons and the tool-call wrapper.
+  const maxTokens = text.length + 2000;
   let response: Response;
   try {
     response = await fetchImpl(API_URL, {
@@ -101,14 +187,33 @@ export async function fixGerman(
         tools: [
           {
             name: TOOL_NAME,
-            description: 'Submit the corrected German text and the list of corrections.',
+            description: 'Submit the text as ordered segments: unchanged pieces and corrections.',
             input_schema: {
               type: 'object',
               properties: {
-                fixed: { type: 'string', description: 'The full corrected text.' },
-                notes: { type: 'array', items: { type: 'string' } },
+                segments: {
+                  type: 'array',
+                  items: {
+                    anyOf: [
+                      {
+                        type: 'object',
+                        properties: { text: { type: 'string' } },
+                        required: ['text'],
+                      },
+                      {
+                        type: 'object',
+                        properties: {
+                          original: { type: 'string' },
+                          fixed: { type: 'string' },
+                          reason: { type: 'string' },
+                        },
+                        required: ['original', 'fixed', 'reason'],
+                      },
+                    ],
+                  },
+                },
               },
-              required: ['fixed', 'notes'],
+              required: ['segments'],
             },
           },
           {

@@ -1,6 +1,22 @@
+export interface UnchangedSegment {
+  readonly text: string;
+}
+
+export interface ChangedSegment {
+  readonly original: string;
+  readonly fixed: string;
+  readonly reason: string;
+}
+
+/**
+Part of the checked text, in order. Joining `text`/`original` gives the input; `text`/`fixed` the correction.
+*/
+export type Segment = UnchangedSegment | ChangedSegment;
+
 export interface FixResult {
   readonly fixed: string;
-  readonly notes: readonly string[];
+  // Empty when no per-change reasons are available.
+  readonly segments: readonly Segment[];
 }
 
 export interface StartMessage {
@@ -35,11 +51,25 @@ export function isBackgroundRequest(value: unknown): value is BackgroundRequest 
   return value['type'] === 'voran:fix' && typeof value['text'] === 'string';
 }
 
-export function isFixResult(value: unknown): value is FixResult {
-  return (
-    isRecord(value) &&
-    typeof value['fixed'] === 'string' &&
-    Array.isArray(value['notes']) &&
-    value['notes'].every((note) => typeof note === 'string')
-  );
+export function isChangedSegment(value: Segment): value is ChangedSegment {
+  return 'original' in value;
+}
+
+export function isSegment(value: unknown): value is Segment {
+  if (!isRecord(value)) {
+    return false;
+  }
+  // The two shapes are mutually exclusive: `isChangedSegment` tells them apart by `original`.
+  if ('original' in value) {
+    return (
+      typeof value['original'] === 'string' &&
+      typeof value['fixed'] === 'string' &&
+      typeof value['reason'] === 'string'
+    );
+  }
+  return typeof value['text'] === 'string';
+}
+
+export function isSegmentList(value: unknown): value is Segment[] {
+  return Array.isArray(value) && (value as unknown[]).every((item) => isSegment(item));
 }

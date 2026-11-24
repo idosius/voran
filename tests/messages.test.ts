@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isBackgroundRequest, isFixResult, isRecord, isStartMessage } from '../src/messages';
+import { isBackgroundRequest, isRecord, isSegmentList, isStartMessage } from '../src/messages';
 
 describe('isRecord', () => {
   it('accepts plain objects only', () => {
@@ -29,12 +29,18 @@ describe('isBackgroundRequest', () => {
   });
 });
 
-describe('isFixResult', () => {
+describe('isSegmentList', () => {
   it('validates shape', () => {
-    expect(isFixResult({ fixed: 'a', notes: ['b'] })).toBe(true);
-    expect(isFixResult({ fixed: 'a', notes: [] })).toBe(true);
-    expect(isFixResult({ fixed: 'a', notes: [1] })).toBe(false);
-    expect(isFixResult({ fixed: 1, notes: [] })).toBe(false);
-    expect(isFixResult({ fixed: 'a' })).toBe(false);
+    const change = { original: 'a', fixed: 'b', reason: 'r' };
+    expect(isSegmentList([{ text: 'x' }, change])).toBe(true);
+    expect(isSegmentList([])).toBe(true);
+    expect(isSegmentList([{ original: 'a', fixed: 'b' }])).toBe(false);
+    expect(isSegmentList(['x'])).toBe(false);
+    expect(isSegmentList({ text: 'x' })).toBe(false);
+  });
+
+  it('rejects objects that mix both segment shapes', () => {
+    expect(isSegmentList([{ text: 'k', original: 'a' }])).toBe(false);
+    expect(isSegmentList([{ text: 'k', original: 'a', fixed: 'b', reason: 'r' }])).toBe(true);
   });
 });
