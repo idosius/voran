@@ -1,41 +1,60 @@
 import { describe, expect, it } from 'vitest';
-import { unifiedDiff } from '../src/diff';
+import { type DiffSegment, inlineDiff } from '../src/diff';
 
-describe('unifiedDiff', () => {
-  it('returns no lines for identical text', () => {
-    expect(unifiedDiff('Hallo Welt', 'Hallo Welt')).toEqual([]);
+function rebuild(segments: readonly DiffSegment[], skip: 'add' | 'remove'): string {
+  return segments
+    .filter((s) => s.kind !== skip)
+    .map((s) => s.text)
+    .join('');
+}
+
+describe('inlineDiff', () => {
+  it('returns no segments for identical text', () => {
+    expect(inlineDiff('Hallo Welt', 'Hallo Welt')).toEqual([]);
   });
 
-  it('marks removed and added lines', () => {
-    const lines = unifiedDiff('Die Kinder spielt.', 'Die Kinder spielen.');
-    expect(lines.map((l) => l.kind)).toEqual(['header', 'header', 'hunk', 'remove', 'add']);
-    expect(lines.find((l) => l.kind === 'remove')?.text).toBe('-Die Kinder spielt.');
-    expect(lines.find((l) => l.kind === 'add')?.text).toBe('+Die Kinder spielen.');
-  });
-
-  it('keeps unchanged lines as context and emits no newline marker', () => {
-    const lines = unifiedDiff('eins\nzwei\ndrei', 'eins\nzwie\ndrei');
-    expect(lines.filter((l) => l.kind === 'context').map((l) => l.text)).toEqual([
-      ' eins',
-      ' drei',
+  it('marks only the changed word, leaving punctuation as equal text', () => {
+    expect(inlineDiff('Die Kinder spielt.', 'Die Kinder spielen.')).toEqual([
+      { kind: 'equal', text: 'Die Kinder ' },
+      { kind: 'remove', text: 'spielt' },
+      { kind: 'add', text: 'spielen' },
+      { kind: 'equal', text: '.' },
     ]);
-    expect(lines.some((l) => l.text.includes('No newline'))).toBe(false);
   });
 
-  it('handles texts that already end with a newline', () => {
-    const lines = unifiedDiff('a\n', 'b\n');
-    expect(lines.some((l) => l.kind === 'add' && l.text === '+b')).toBe(true);
-  });
-});
-
-describe('unifiedDiff header detection', () => {
-  it('does not mistake content lines starting with dashes or pluses for headers', () => {
-    const lines = unifiedDiff('-- Hallo', '++ Hallo!');
-    expect(lines.filter((l) => l.kind === 'header').map((l) => l.text)).toEqual([
-      '--- original',
-      '+++ fixed',
+  it('keeps line breaks inside equal segments', () => {
+    expect(inlineDiff('eins\nzwei\ndrei', 'eins\nzwie\ndrei')).toEqual([
+      { kind: 'equal', text: 'eins\n' },
+      { kind: 'remove', text: 'zwei' },
+      { kind: 'add', text: 'zwie' },
+      { kind: 'equal', text: '\ndrei' },
     ]);
-    expect(lines.find((l) => l.kind === 'remove')?.text).toBe('--- Hallo');
-    expect(lines.find((l) => l.kind === 'add')?.text).toBe('+++ Hallo!');
+  });
+
+  it('shows whitespace-only changes', () => {
+    expect(inlineDiff('a  b', 'a b').some((s) => s.kind !== 'equal')).toBe(true);
+  });
+
+  it.each([
+    ['Das ist Müll.', 'Das ist Mull.', 'Müll', 'Mull'],
+    ['Die Straße ist lang.', 'Die Strasse ist lang.', 'Straße', 'Strasse'],
+    ['Es ist schön.', 'Es ist schon.', 'schön', 'schon'],
+  ])('replaces whole German words, not fragments: %j', (original, fixed, removed, added) => {
+    const segments = inlineDiff(original, fixed).filter((s) => s.kind !== 'equal');
+    expect(segments).toEqual([
+      { kind: 'remove', text: removed },
+      { kind: 'add', text: added },
+    ]);
+  });
+
+  it.each([
+    ['Ich habe gestern ein Buch gelesen.', 'Ich habe gestern ein Buch gelesen, das war gut.'],
+    ['Die Kinder spielt im Garten.', 'Die Kinder spielen im Garten.'],
+    ['-- Hallo', '++ Hallo!'],
+    ['a\n', 'b\n'],
+  ])('reconstructs both texts from the segments: %j', (original, fixed) => {
+    const segments = inlineDiff(original, fixed);
+    expect(rebuild(segments, 'add')).toBe(original);
+    expect(rebuild(segments, 'remove')).toBe(fixed);
   });
 });

@@ -28,9 +28,18 @@ describe('createModal', () => {
     const root = shadow();
     expect(root.querySelector('img')).toBeNull();
     expect(root.querySelector('i')).toBeNull();
-    expect(root.querySelectorAll('.line.remove')).toHaveLength(1);
-    expect(root.querySelectorAll('.line.add')).toHaveLength(1);
+    expect(root.querySelector('del.remove')?.textContent).toBe('a');
+    expect(root.querySelector('ins.add')?.textContent).toBe('b');
+    expect(root.querySelector('.diff')?.textContent).toContain('<img src=x onerror=alert(1)');
     expect(root.querySelector('li')?.textContent).toBe('note <i>');
+  });
+
+  it('shows whitespace-only changes as visible glyphs', () => {
+    const modal = createModal(document);
+    modal.showResult('a  b', 'a\tb\n', []);
+    const root = shadow();
+    expect(root.querySelector('del')?.textContent).toBe('··');
+    expect(root.querySelector('ins')?.textContent).toContain('→');
   });
 
   it('omits the list when there are no notes', () => {

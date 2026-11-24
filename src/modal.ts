@@ -1,4 +1,4 @@
-import { type DiffLine, unifiedDiff } from './diff';
+import { type DiffSegment, inlineDiff } from './diff';
 
 const CSS = `
 :host { all: initial; }
@@ -18,14 +18,18 @@ const CSS = `
 }
 h2 { margin: 0; font-size: 16px; }
 .diff {
-  margin: 0; padding: 8px 0; overflow: auto; border-radius: 6px;
+  margin: 0; padding: 10px 12px; overflow: auto; border-radius: 6px;
   border: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
-  font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace;
+  font: 14px/1.6 system-ui, sans-serif; white-space: pre-wrap; overflow-wrap: anywhere;
 }
-.line { padding: 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.add { background: rgb(46 160 67 / 25%); }
-.remove { background: rgb(248 81 73 / 25%); }
-.hunk, .header { color: color-mix(in srgb, CanvasText 55%, transparent); }
+.add {
+  background: rgb(46 160 67 / 25%); color: light-dark(#1a7f37, #7ee787);
+  text-decoration: underline;
+}
+.remove {
+  background: rgb(248 81 73 / 25%); color: light-dark(#b42318, #ff8a80);
+  text-decoration: line-through;
+}
 ul { margin: 0; padding-left: 20px; }
 li { margin: 2px 0; }
 .message { margin: 0; }
@@ -109,12 +113,30 @@ function mountHost(doc: Document): { host: HTMLElement; root: ShadowRoot } {
   return { host, root };
 }
 
-function renderDiff(doc: Document, lines: readonly DiffLine[]): HTMLElement {
-  const pre = el(doc, 'div', 'diff');
-  for (const line of lines) {
-    pre.append(el(doc, 'div', `line ${line.kind}`, line.text));
+const VISIBLE_WHITESPACE: Readonly<Record<string, string>> = {
+  ' ': '·',
+  '\t': '→',
+  '\r': '␍',
+  '\n': '↵\n',
+};
+
+/**
+Whitespace-only changes would otherwise be invisible, so show them as glyphs.
+*/
+function visibleText(segment: DiffSegment): string {
+  return segment.kind === 'equal' || segment.text.trim() !== ''
+    ? segment.text
+    : segment.text.replaceAll(/[ \t\r\n]/gu, (char) => VISIBLE_WHITESPACE[char] ?? char);
+}
+
+const SEGMENT_TAG = { add: 'ins', remove: 'del', equal: 'span' } as const;
+
+function renderDiff(doc: Document, segments: readonly DiffSegment[]): HTMLElement {
+  const container = el(doc, 'div', 'diff');
+  for (const segment of segments) {
+    container.append(el(doc, SEGMENT_TAG[segment.kind], segment.kind, visibleText(segment)));
   }
-  return pre;
+  return container;
 }
 
 export function createModal(doc: Document): Modal {
@@ -165,8 +187,8 @@ export function createModal(doc: Document): Modal {
   return {
     closed,
     showResult: (original, fixed, notes): void => {
-      const lines = unifiedDiff(original, fixed);
-      if (lines.length === 0) {
+      const segments = inlineDiff(original, fixed);
+      if (segments.length === 0) {
         render([el(doc, 'p', 'message', 'No corrections needed.')]);
         return;
       }
@@ -174,7 +196,7 @@ export function createModal(doc: Document): Modal {
       for (const note of notes) {
         list.append(el(doc, 'li', undefined, note));
       }
-      render(notes.length > 0 ? [renderDiff(doc, lines), list] : [renderDiff(doc, lines)]);
+      render(notes.length > 0 ? [renderDiff(doc, segments), list] : [renderDiff(doc, segments)]);
     },
     showError: (message, action): void => {
       render([el(doc, 'p', 'message error', message)], action);
