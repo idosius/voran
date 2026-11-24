@@ -25,11 +25,11 @@ Select text, right-click, choose **Voran**. Close the dialog with the button (**
 
 Replacement depends on where the text was selected:
 
-| Selection                                | Result                                           |
-| ---------------------------------------- | ------------------------------------------------ |
-| `<input>`, `<textarea>`, contenteditable | Replaced in place; the page's undo stack is kept |
-| Read-only page text                      | Corrected text is copied to the clipboard        |
-| Text changed while the dialog was open   | Corrected text is copied to the clipboard        |
+| Selection                                | Result                                                                                                                                                                                                                          |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<input>`, `<textarea>`, contenteditable | Replaced in place; the page's undo stack is kept. In rich text (e.g. pasted from Gmail or Docs) only the corrected words change, so bold, links and lists stay; a correction that crosses a line break falls back to plain text |
+| Read-only page text                      | Corrected text is copied to the clipboard                                                                                                                                                                                       |
+| Text changed while the dialog was open   | Corrected text is copied to the clipboard                                                                                                                                                                                       |
 
 If nothing needs correcting, no dialog opens. A green checkmark appears briefly over the text and the text is left alone. While waiting for Claude, a small "Checking…" pill shows over the selected text.
 

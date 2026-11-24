@@ -1,5 +1,8 @@
+import { screen, within } from '@testing-library/dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { extractText } from '../src/richtext';
 import { anchorRect, applyReplacement, captureTarget, type Target } from '../src/replace';
+import { textNodeOf } from './helpers';
 
 function selectRange(node: Node, start: number, end: number): void {
   const range = document.createRange();
@@ -16,6 +19,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  Reflect.deleteProperty(document, 'execCommand');
 });
 
 describe('captureTarget', () => {
@@ -49,7 +54,7 @@ describe('captureTarget', () => {
     const p = document.createElement('p');
     p.textContent = 'Hallo Welt';
     document.body.append(p);
-    selectRange(p.firstChild!, 0, 5);
+    selectRange(textNodeOf(screen.getByText('Hallo Welt')), 0, 5);
     expect(captureTarget(document)).toMatchObject({ kind: 'readonly', original: 'Hallo' });
   });
 
@@ -58,7 +63,7 @@ describe('captureTarget', () => {
     div.contentEditable = 'true';
     div.textContent = 'Hallo Welt';
     document.body.append(div);
-    selectRange(div.firstChild!, 0, 5);
+    selectRange(textNodeOf(screen.getByText('Hallo Welt')), 0, 5);
     expect(captureTarget(document)).toMatchObject({ kind: 'editable', original: 'Hallo' });
   });
 });
@@ -100,11 +105,11 @@ describe('applyReplacement', () => {
     div.contentEditable = 'true';
     div.textContent = 'Ich habe ein Fehler';
     document.body.append(div);
-    selectRange(div.firstChild!, 9, 19);
+    selectRange(textNodeOf(div), 9, 19);
     const target = captureTarget(document);
     expect(target?.kind).toBe('editable');
     expect(await applyReplacement(document, target!, 'einen Fehler')).toBe('replaced');
-    expect(div.textContent).toBe('Ich habe einen Fehler');
+    expect(div).toHaveTextContent('Ich habe einen Fehler');
   });
 
   it('copies when the editable range text no longer matches', async () => {
@@ -112,7 +117,7 @@ describe('applyReplacement', () => {
     div.contentEditable = 'true';
     div.textContent = 'Hallo Welt';
     document.body.append(div);
-    selectRange(div.firstChild!, 0, 5);
+    selectRange(textNodeOf(screen.getByText('Hallo Welt')), 0, 5);
     const target = captureTarget(document)!;
     div.textContent = 'Anderer Text';
     const writeText = vi.fn(() => Promise.resolve());
@@ -201,16 +206,92 @@ describe('multi-line contenteditable selections', () => {
     div.append(first, second);
     document.body.append(div);
     const range = document.createRange();
-    range.setStart(first.firstChild!, 0);
-    range.setEnd(second.firstChild!, 9);
+    range.setStart(textNodeOf(screen.getByText('Ein Satz')), 0);
+    range.setEnd(textNodeOf(screen.getByText('Zwei Satz')), 9);
     const target: Target = {
       kind: 'editable',
       range,
       original: 'Ein Satz\nZwei Satz',
+      map: extractText(range),
       rangeText: range.toString(),
     };
     expect(await applyReplacement(document, target, 'Ein Satz. Zwei Sätze.')).toBe('replaced');
-    expect(div.textContent).toContain('Zwei Sätze.');
+    expect(div).toHaveTextContent(/Zwei Sätze\./);
+  });
+});
+
+function editable(html: string): HTMLDivElement {
+  const div = document.createElement('div');
+  div.contentEditable = 'true';
+  div.append(...new DOMParser().parseFromString(html, 'text/html').body.childNodes);
+  document.body.append(div);
+  return div;
+}
+
+function selectAll(div: HTMLElement): void {
+  const range = document.createRange();
+  range.selectNodeContents(div);
+  const selection = document.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+}
+
+describe('rich text selections', () => {
+  it('sends normalized plain text and keeps formatting when fixing words', async () => {
+    const div = editable(
+      '<p>Ich <b>habe ein</b> Fehler</p><ul><li>Das sind <a href="#x">Hunde</a></li></ul>',
+    );
+    selectAll(div);
+    const target = captureTarget(document)!;
+    expect(target.original).toBe('Ich habe ein Fehler\nDas sind Hunde');
+    expect(await applyReplacement(document, target, 'Ich habe einen Fehler\nDas sind Hunde.')).toBe(
+      'replaced',
+    );
+    expect(within(div).getByText(/habe ein/u, { selector: 'b' })).toBeInTheDocument();
+    expect(within(div).getByRole('link', { name: 'Hunde.' })).toHaveAttribute('href', '#x');
+    expect(within(div).getAllByRole('listitem')).toHaveLength(1);
+    expect(within(div).getAllByRole('paragraph')).toHaveLength(1);
+    expect(div).toHaveTextContent('Ich habe einen FehlerDas sind Hunde.');
+  });
+
+  it('handles nbsp and zero-width characters from pasted content', async () => {
+    const div = editable('<p>Ich\u{A0}habe\u{200B} ein Fehler</p>');
+    selectAll(div);
+    const target = captureTarget(document)!;
+    expect(target.original).toBe('Ich habe ein Fehler');
+    expect(await applyReplacement(document, target, 'Ich habe einen Fehler')).toBe('replaced');
+    expect(div).toHaveTextContent(/einen Fehler/);
+    expect(within(div).getByRole('paragraph')).toBeInTheDocument();
+  });
+
+  it('falls back to plain text when a correction crosses a paragraph break', async () => {
+    const div = editable('<p>Ein Satz</p><p>Zwei Satz</p>');
+    selectAll(div);
+    const target = captureTarget(document)!;
+    expect(await applyReplacement(document, target, 'Ein Satz. Zwei Sätze.')).toBe('replaced');
+    expect(div).toHaveTextContent(/Zwei Sätze\./);
+  });
+
+  it('copies when the page changed after capture', async () => {
+    const div = editable('<p>Ich <b>habe</b> ein Fehler</p>');
+    selectAll(div);
+    const target = captureTarget(document)!;
+    textNodeOf(within(div).getByText('habe', { selector: 'b' })).textContent = 'hatte';
+    const writeText = vi.fn(() => Promise.resolve());
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    expect(await applyReplacement(document, target, 'Ich habe einen Fehler')).toBe('copied');
+    vi.unstubAllGlobals();
+  });
+
+  it('uses execCommand per hunk, deleting with the delete command', async () => {
+    const div = editable('<p>Das ist ist <i>gut</i></p>');
+    selectAll(div);
+    const target = captureTarget(document)!;
+    const exec = vi.fn(() => true);
+    Object.defineProperty(document, 'execCommand', { value: exec, configurable: true });
+    expect(await applyReplacement(document, target, 'Das ist gut')).toBe('replaced');
+    expect(exec).toHaveBeenCalledWith('delete', false);
+    Reflect.deleteProperty(document, 'execCommand');
   });
 });
 
@@ -229,16 +310,22 @@ describe('anchorRect', () => {
     const range = document.createRange();
     const rect = new DOMRect(5, 6, 7, 8);
     vi.spyOn(range, 'getBoundingClientRect').mockReturnValue(rect);
-    expect(anchorRect(document, { kind: 'editable', range, original: 'a', rangeText: 'a' })).toBe(
-      rect,
-    );
+    expect(
+      anchorRect(document, {
+        kind: 'editable',
+        range,
+        original: 'a',
+        map: { text: 'a', positions: [] },
+        rangeText: 'a',
+      }),
+    ).toBe(rect);
   });
 
   it('uses the live selection for read-only text, or null without one', () => {
     const p = document.createElement('p');
     p.textContent = 'Hallo';
     document.body.append(p);
-    selectRange(p.firstChild!, 0, 3);
+    selectRange(textNodeOf(screen.getByText('Hallo')), 0, 3);
     expect(anchorRect(document, { kind: 'readonly', original: 'Hal' })).not.toBeNull();
     document.getSelection()?.removeAllRanges();
     expect(anchorRect(document, { kind: 'readonly', original: 'Hal' })).toBeNull();

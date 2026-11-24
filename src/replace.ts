@@ -1,3 +1,5 @@
+import { applyEdits, extractText, planEdits, type TextMap } from './richtext';
+
 export type Target =
   | {
       readonly kind: 'field';
@@ -9,8 +11,10 @@ export type Target =
   | {
       readonly kind: 'editable';
       readonly range: Range;
-      // Selection text sent for correction; keeps line breaks.
+      // Selection text sent for correction (`map.text`); keeps line breaks.
       readonly original: string;
+      // Where each character of `original` lives, to correct in place and keep the formatting.
+      readonly map: TextMap;
       // Plain text of the range, used to detect that the page changed meanwhile.
       readonly rangeText: string;
     }
@@ -65,10 +69,11 @@ export function captureTarget(doc: Document): Target | null {
     return null;
   }
   const range = selection.getRangeAt(0).cloneRange();
-  const original = selection.toString();
-  return editableHost(range.commonAncestorContainer) === null
-    ? { kind: 'readonly', original }
-    : { kind: 'editable', range, original, rangeText: range.toString() };
+  if (editableHost(range.commonAncestorContainer) === null) {
+    return { kind: 'readonly', original: selection.toString() };
+  }
+  const map = extractText(range);
+  return { kind: 'editable', range, original: map.text, map, rangeText: range.toString() };
 }
 
 /**
@@ -125,12 +130,25 @@ function replaceInEditable(
   target: Extract<Target, { kind: 'editable' }>,
   fixed: string,
 ): ReplaceOutcome | null {
-  const { range, rangeText } = target;
+  const { range, rangeText, map, original } = target;
   const host = editableHost(range.commonAncestorContainer);
-  if (host === null || !range.startContainer.isConnected || range.toString() !== rangeText) {
+  if (
+    host === null ||
+    !range.startContainer.isConnected ||
+    range.toString() !== rangeText ||
+    extractText(range).text !== original
+  ) {
     return null;
   }
   const doc = host.ownerDocument;
+  // Preferred: small edits in place, so bold, links, lists and paragraphs survive.
+  const edits = planEdits(map, fixed);
+  if (edits !== null && applyEdits(doc, host, edits)) {
+    return 'replaced';
+  }
+  if (range.toString() !== rangeText) {
+    return null;
+  }
   host.focus();
   const selection = doc.getSelection();
   selection?.removeAllRanges();
