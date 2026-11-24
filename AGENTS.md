@@ -1,0 +1,46 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Overview
+
+Voran is a Chrome extension (Manifest V3, TypeScript, no framework). The user selects text, right-clicks **Voran**, and Claude Haiku (`claude-haiku-5-5`) returns a corrected version. A dialog shows an inline word diff, and closing the dialog replaces the selection. See `README.md` for the usage table, manual test checklist and known limitations.
+
+## Commands
+
+```sh
+npm run build          # esbuild -> dist/ (load dist/ unpacked in chrome://extensions)
+npm run watch          # rebuild on change; static files (manifest.json, options.html) copied only at start
+npm run typecheck      # tsc for src+tests (tsconfig.json) and build/config files (tsconfig.node.json)
+npm run lint           # eslint, --max-warnings 0
+npm run format         # prettier --write (format:check to verify)
+npm test               # vitest run --coverage (happy-dom, coverage thresholds enforced)
+npm run check          # typecheck + lint + format:check + test
+npx vitest run tests/diff.test.ts            # single test file
+npx vitest run -t "name substring"           # single test by name
+```
+
+Node >= 22. After a rebuild, reload the extension on `chrome://extensions` and reload the tested tab.
+
+## Architecture
+
+Three separate esbuild IIFE bundles (`background`, `content`, `options`), each entry in `src/`. They talk only via `chrome.runtime` messages typed in `src/messages.ts` (type guards like `isBackgroundRequest` validate every incoming message).
+
+Flow: context-menu click in `background.ts` -> `voran:start` to the content script in the clicked frame (injects `content.js` if the tab predates install) -> `content.ts` shows a "Checking…" pill and sends `voran:fix` -> `background.ts` reads the API key and language settings from `chrome.storage.local`, calls `claude.ts` -> result returns to `content.ts` -> `modal.ts` shows the diff -> on close, `replace.ts` applies the text.
+
+Key points spanning files:
+
+- API key is read and used only in the background service worker; it must never reach page context. Only `https://api.anthropic.com/*` is a host permission.
+- `claude.ts` forces the model to call a tool: `submit_correction` (ordered `segments`: unchanged `{text}` or changed `{original, fixed, reason}`) or `confirm_correct`. No free-text parsing. `fixed` is derived by joining segments. Segment types and guards live in `messages.ts`.
+- `diff.ts` (uses the `diff` package) is the fallback inline diff when no per-change segments are available.
+- `modal.ts` renders in a shadow root under `<voran-root>`. All page/model text goes in via `textContent`.
+- `replace.ts` captures the selection at `contextmenu` time and replaces it by target type (input/textarea, contenteditable keeping undo stack, else clipboard fallback; also clipboard if text changed while dialog was open).
+- `languages.ts` holds the curated language list and `normalizeSettings`, which validates stored settings; `combobox.ts` + `options.ts` + `options.html` are the options page (settings autosave).
+- Storage keys and the menu id are in `constants.ts`.
+
+## Conventions
+
+- ESLint is strict (`typescript-eslint` strictTypeChecked + stylisticTypeChecked, unicorn). Notable: explicit function return types, no non-null assertions, `strict-boolean-expressions`, no `console`, and `innerHTML`/`outerHTML`/`insertAdjacentHTML` are errors. Build DOM with `createElement`/`textContent`.
+- tsconfig is maximally strict (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `erasableSyntaxOnly` — no enums/namespaces/parameter properties, `verbatimModuleSyntax` — use `import type`).
+- Prettier: single quotes, width 100, trailing commas.
+- `background.ts`, `content.ts`, `options.ts` are thin wiring, excluded from coverage and tested manually. Everything else in `src/` is covered by `tests/` (mocked `fetch`, happy-dom) with thresholds of 90% lines/functions/statements and 85% branches, so new logic should live in testable modules.
