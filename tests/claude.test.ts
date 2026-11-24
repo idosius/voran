@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ClaudeError, fixGerman } from '../src/claude';
+import { buildSystemPrompt, ClaudeError, fixText } from '../src/claude';
 import { MAX_INPUT_CHARS, MODEL } from '../src/constants';
+import { DEFAULT_SETTINGS } from '../src/languages';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return Response.json(body, { status });
@@ -16,13 +17,17 @@ function toolUse(input: unknown): unknown {
   };
 }
 
+function fix(text: string, key: string, fetchImpl: typeof fetch): ReturnType<typeof fixText> {
+  return fixText(text, key, DEFAULT_SETTINGS, fetchImpl);
+}
+
 function fetchReturning(response: Response | Error): typeof fetch {
   return vi.fn(() =>
     response instanceof Error ? Promise.reject(response) : Promise.resolve(response),
   );
 }
 
-describe('fixGerman', () => {
+describe('fixText', () => {
   it('sends the expected request and returns the tool input', async () => {
     const segments = [
       { text: 'Die Kinder ' },
@@ -30,7 +35,7 @@ describe('fixGerman', () => {
       { text: '.' },
     ];
     const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(toolUse({ segments }))));
-    const result = await fixGerman('Die Kinder spielt.', 'sk-test', fetchMock);
+    const result = await fix('Die Kinder spielt.', 'sk-test', fetchMock);
 
     expect(result).toEqual({ fixed: 'Die Kinder spielen.', segments });
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
@@ -50,7 +55,7 @@ describe('fixGerman', () => {
   it('realigns corrections onto the real input when the model re-typed unchanged text', async () => {
     const change = { original: 'spielt', fixed: 'spielen', reason: 'verb agreement' };
     const segments = [{ text: 'Die  Kinder\u{A0}' }, change, { text: '!' }];
-    const result = await fixGerman(
+    const result = await fix(
       'Die Kinder spielt.',
       'k',
       fetchReturning(jsonResponse(toolUse({ segments }))),
@@ -63,7 +68,7 @@ describe('fixGerman', () => {
 
   it('anchors a repeated word at the position the model reached', async () => {
     const change = { original: 'und', fixed: 'oder', reason: 'meaning' };
-    const result = await fixGerman(
+    const result = await fix(
       'und Tee und Kaffee',
       'k',
       fetchReturning(jsonResponse(toolUse({ segments: [{ text: 'und Tee ' }, change] }))),
@@ -74,7 +79,7 @@ describe('fixGerman', () => {
   it('places insertions and drops corrections it cannot find', async () => {
     const insert = { original: '', fixed: ',', reason: 'comma' };
     const ghost = { original: 'xyz', fixed: 'abc', reason: 'nope' };
-    const result = await fixGerman(
+    const result = await fix(
       'Ich weiß dass es geht',
       'k',
       fetchReturning(jsonResponse(toolUse({ segments: [{ text: 'Ich weiß' }, insert, ghost] }))),
@@ -87,7 +92,7 @@ describe('fixGerman', () => {
 
   it('anchors an insertion by its preceding text when the model re-typed whitespace', async () => {
     const insert = { original: '', fixed: ',', reason: 'comma' };
-    const result = await fixGerman(
+    const result = await fix(
       'Heute  und morgen weiß dass es geht',
       'k',
       fetchReturning(
@@ -102,7 +107,7 @@ describe('fixGerman', () => {
   it('keeps later anchors right after dropping an unfindable correction', async () => {
     const ghost = { original: 'Y', fixed: 'Z', reason: 'nope' };
     const change = { original: 'und', fixed: 'oder', reason: 'meaning' };
-    const result = await fixGerman(
+    const result = await fix(
       'und Tee X und Kaffee',
       'k',
       fetchReturning(
@@ -119,13 +124,13 @@ describe('fixGerman', () => {
   it('errors instead of reporting "correct" when no correction can be placed', async () => {
     const ghost = { original: 'xyz', fixed: 'abc', reason: 'nope' };
     await expect(
-      fixGerman('Hallo', 'k', fetchReturning(jsonResponse(toolUse({ segments: [ghost] })))),
+      fix('Hallo', 'k', fetchReturning(jsonResponse(toolUse({ segments: [ghost] })))),
     ).rejects.toThrow(/Unexpected response/);
   });
 
   it('ignores no-op corrections', async () => {
     const noop = { original: 'a', fixed: 'a', reason: 'same' };
-    const result = await fixGerman(
+    const result = await fix(
       'a b',
       'k',
       fetchReturning(jsonResponse(toolUse({ segments: [noop, { text: ' b' }] }))),
@@ -135,14 +140,14 @@ describe('fixGerman', () => {
 
   it('rejects a submit_correction without valid segments', async () => {
     await expect(
-      fixGerman('a', 'k', fetchReturning(jsonResponse(toolUse({ segments: [{ nope: 1 }] })))),
+      fix('a', 'k', fetchReturning(jsonResponse(toolUse({ segments: [{ nope: 1 }] })))),
     ).rejects.toThrow(/Unexpected response/);
   });
 
   it('rejects over-long input without calling the API', async () => {
     const fetchMock = vi.fn();
     await expect(
-      fixGerman('x'.repeat(MAX_INPUT_CHARS + 1), 'k', fetchMock as unknown as typeof fetch),
+      fix('x'.repeat(MAX_INPUT_CHARS + 1), 'k', fetchMock as unknown as typeof fetch),
     ).rejects.toThrow(/too long/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -154,28 +159,24 @@ describe('fixGerman', () => {
     [500, /unavailable/],
     [400, /HTTP 400/],
   ])('maps HTTP %i to a readable error', async (status, pattern) => {
-    await expect(fixGerman('a', 'k', fetchReturning(jsonResponse({}, status)))).rejects.toThrow(
-      pattern,
-    );
+    await expect(fix('a', 'k', fetchReturning(jsonResponse({}, status)))).rejects.toThrow(pattern);
   });
 
   it('maps network failures', async () => {
-    await expect(fixGerman('a', 'k', fetchReturning(new TypeError('offline')))).rejects.toThrow(
+    await expect(fix('a', 'k', fetchReturning(new TypeError('offline')))).rejects.toThrow(
       /Network error/,
     );
   });
 
   it('rejects unparsable bodies', async () => {
-    await expect(fixGerman('a', 'k', fetchReturning(new Response('not json')))).rejects.toThrow(
+    await expect(fix('a', 'k', fetchReturning(new Response('not json')))).rejects.toThrow(
       /Unreadable/,
     );
   });
 
   it('rejects truncated output', async () => {
     const body = { stop_reason: 'max_tokens', content: [] };
-    await expect(fixGerman('a', 'k', fetchReturning(jsonResponse(body)))).rejects.toThrow(
-      /too long/,
-    );
+    await expect(fix('a', 'k', fetchReturning(jsonResponse(body)))).rejects.toThrow(/too long/);
   });
 
   it.each([
@@ -186,7 +187,7 @@ describe('fixGerman', () => {
   ])('rejects %s', async (_label, body) => {
     let error: unknown;
     try {
-      await fixGerman('a', 'k', fetchReturning(jsonResponse(body)));
+      await fix('a', 'k', fetchReturning(jsonResponse(body)));
     } catch (error_) {
       error = error_;
     }
@@ -195,33 +196,33 @@ describe('fixGerman', () => {
   });
 });
 
-describe('fixGerman request limits', () => {
+describe('fixText request limits', () => {
   const okBody = toolUse({ segments: [{ text: 'a' }] });
 
   it('rejects blank input without calling the API', async () => {
     const fetchMock = vi.fn();
-    await expect(fixGerman('  \n ', 'k', fetchMock)).rejects.toThrow(/Nothing to correct/);
+    await expect(fix('  \n ', 'k', fetchMock)).rejects.toThrow(/Nothing to correct/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('sizes max_tokens to at least one token per input character', async () => {
+  it('sizes max_tokens to at least two tokens per input character', async () => {
     const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(okBody)));
-    await fixGerman('x'.repeat(7000), 'k', fetchMock);
+    await fix('x'.repeat(7000), 'k', fetchMock);
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
-    expect(body['max_tokens']).toBeGreaterThanOrEqual(7000);
+    expect(body['max_tokens']).toBeGreaterThanOrEqual(14_000);
   });
 
   it('passes an abort signal to fetch', async () => {
     const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(okBody)));
-    await fixGerman('a', 'k', fetchMock);
+    await fix('a', 'k', fetchMock);
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
   it('reports a timeout while waiting for the response', async () => {
     const timeout = new DOMException('timed out', 'TimeoutError');
-    await expect(fixGerman('a', 'k', fetchReturning(timeout))).rejects.toThrow(/timed out/);
+    await expect(fix('a', 'k', fetchReturning(timeout))).rejects.toThrow(/timed out/);
   });
 
   it('reports a timeout while reading the body', async () => {
@@ -229,7 +230,7 @@ describe('fixGerman request limits', () => {
       ok: true,
       json: () => Promise.reject(new DOMException('timed out', 'TimeoutError')),
     } as unknown as Response;
-    await expect(fixGerman('a', 'k', fetchReturning(response))).rejects.toThrow(/timed out/);
+    await expect(fix('a', 'k', fetchReturning(response))).rejects.toThrow(/timed out/);
   });
 });
 
@@ -240,19 +241,15 @@ function confirmReply(): unknown {
   };
 }
 
-describe('fixGerman confirm_correct reply', () => {
+describe('fixText confirm_correct reply', () => {
   it('treats confirm_correct as already correct and returns the original text', async () => {
-    const result = await fixGerman(
-      'Ich bin müde.',
-      'k',
-      fetchReturning(jsonResponse(confirmReply())),
-    );
+    const result = await fix('Ich bin müde.', 'k', fetchReturning(jsonResponse(confirmReply())));
     expect(result).toEqual({ fixed: 'Ich bin müde.', segments: [] });
   });
 
   it('offers both tools and forces a tool call', async () => {
     const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(confirmReply())));
-    await fixGerman('a', 'k', fetchMock);
+    await fix('a', 'k', fetchMock);
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const body = JSON.parse(init.body as string) as {
       tools: { name: string }[];
@@ -266,15 +263,41 @@ describe('fixGerman confirm_correct reply', () => {
 
   it('rejects plain text replies', async () => {
     const body = { stop_reason: 'end_turn', content: [{ type: 'text', text: 'AOK' }] };
-    await expect(fixGerman('a', 'k', fetchReturning(jsonResponse(body)))).rejects.toThrow(
+    await expect(fix('a', 'k', fetchReturning(jsonResponse(body)))).rejects.toThrow(
       /Unexpected response/,
     );
   });
 
   it('ignores malformed and unrelated blocks', async () => {
     const body = { content: ['junk', { type: 'tool_use', name: 'other', input: {} }] };
-    await expect(fixGerman('a', 'k', fetchReturning(jsonResponse(body)))).rejects.toThrow(
+    await expect(fix('a', 'k', fetchReturning(jsonResponse(body)))).rejects.toThrow(
       /Unexpected response/,
     );
+  });
+});
+
+describe('buildSystemPrompt', () => {
+  it('asks the model to detect the language in auto mode', () => {
+    const prompt = buildSystemPrompt({ language: 'auto', reasonLanguage: 'English' });
+    expect(prompt).toContain('Detect its language');
+    expect(prompt).toContain('written in English');
+  });
+
+  it('names a fixed language and a same-language reason', () => {
+    const prompt = buildSystemPrompt({ language: 'Spanish', reasonLanguage: 'same' });
+    expect(prompt).toContain('Spanish text');
+    expect(prompt).not.toContain('Detect its language');
+    expect(prompt).toContain('the same language as the text');
+  });
+
+  it('sends the settings in the request', async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(jsonResponse(toolUse({ segments: [{ text: 'a' }] }))),
+    );
+    await fixText('a', 'k', { language: 'French', reasonLanguage: 'German' }, fetchMock);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as { system: string };
+    expect(body.system).toContain('French text');
+    expect(body.system).toContain('written in German');
   });
 });

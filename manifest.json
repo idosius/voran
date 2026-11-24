@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Voran",
   "version": "1.0.0",
-  "description": "Correct selected German text with Claude Haiku.",
+  "description": "Correct selected text in any language with Claude Haiku.",
   "minimum_chrome_version": "120",
   "permissions": ["contextMenus", "storage", "scripting", "activeTab", "clipboardWrite"],
   "host_permissions": ["https://api.anthropic.com/*"],

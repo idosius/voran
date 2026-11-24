@@ -18,8 +18,51 @@
       }
       label {
         display: block;
-        margin-bottom: 4px;
+        margin: 12px 0 4px;
         font-weight: 600;
+      }
+      .combo {
+        position: relative;
+      }
+      .combo input {
+        padding-right: 32px;
+      }
+      .combo-button {
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: 30px;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+      }
+      .combo-list {
+        position: absolute;
+        z-index: 1;
+        left: 0;
+        right: 0;
+        max-height: 240px;
+        margin: 2px 0 0;
+        padding: 4px 0;
+        overflow-y: auto;
+        list-style: none;
+        border: 1px solid color-mix(in srgb, CanvasText 30%, transparent);
+        border-radius: 6px;
+        background: Canvas;
+        color: CanvasText;
+        box-shadow: 0 6px 20px rgb(0 0 0 / 25%);
+      }
+      .combo-list li {
+        padding: 5px 10px;
+        cursor: pointer;
+      }
+      .combo-list li:hover,
+      .combo-list li.active {
+        background: color-mix(in srgb, CanvasText 14%, transparent);
       }
       input {
         box-sizing: border-box;
@@ -32,6 +75,17 @@
         padding: 6px 14px;
         font: inherit;
       }
+      .hint {
+        margin: 6px 0 0;
+        font-size: 12.5px;
+        line-height: 1.4;
+        font-weight: 400;
+        color: color-mix(in srgb, CanvasText 62%, transparent);
+      }
+      .hint a {
+        color: LinkText;
+        white-space: nowrap;
+      }
       #status {
         margin-left: 12px;
       }
@@ -40,15 +94,29 @@
   <body>
     <h1>Voran</h1>
     <form id="form">
+      <label for="language">Language of the text you correct</label>
+      <div class="combo">
+        <input id="language" autocomplete="off" spellcheck="false" />
+      </div>
+      <p class="hint">Selected text is sent to Anthropic for correction.</p>
+      <label for="reasonLanguage">Language of the explanation tooltips</label>
+      <div class="combo">
+        <input id="reasonLanguage" autocomplete="off" spellcheck="false" />
+      </div>
       <label for="apiKey">Anthropic API key</label>
       <input id="apiKey" type="password" autocomplete="off" spellcheck="false" />
-      <button type="submit">Save</button>
+      <p class="hint">
+        The key is stored locally in this browser profile and sent only to api.anthropic.com.
+        <a
+          href="https://console.anthropic.com/settings/keys"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Get an Anthropic API key</a
+        >
+      </p>
+      <button id="save" type="submit">Save</button>
       <span id="status" role="status"></span>
     </form>
-    <p>
-      The key is stored locally in this browser profile and sent only to api.anthropic.com. Selected
-      text is sent to Anthropic for correction.
-    </p>
     <script src="options.js"></script>
   </body>
 </html>

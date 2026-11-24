@@ -143,6 +143,7 @@ const SEGMENT_TAG = { add: 'ins', remove: 'del', equal: 'span' } as const;
 
 function renderDiff(doc: Document, segments: readonly DiffSegment[]): HTMLElement {
   const container = el(doc, 'div', 'diff');
+  container.dir = 'auto';
   for (const segment of segments) {
     container.append(el(doc, SEGMENT_TAG[segment.kind], segment.kind, visibleText(segment)));
   }
@@ -151,6 +152,7 @@ function renderDiff(doc: Document, segments: readonly DiffSegment[]): HTMLElemen
 
 function renderSegments(doc: Document, segments: readonly Segment[]): HTMLElement {
   const container = el(doc, 'div', 'diff');
+  container.dir = 'auto';
   for (const segment of segments) {
     if (!isChangedSegment(segment)) {
       container.append(el(doc, 'span', 'equal', segment.text));
@@ -192,6 +194,7 @@ function attachTooltip(doc: Document, tooltip: HTMLElement, diff: HTMLElement): 
     hide();
     current = change;
     tooltip.textContent = change.dataset['reason'] ?? '';
+    tooltip.dir = 'auto';
     tooltip.hidden = false;
     change.setAttribute('aria-describedby', tooltip.id);
 

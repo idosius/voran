@@ -1,7 +1,7 @@
 {
   "name": "voran",
   "version": "1.0.0",
-  "description": "Chrome extension that corrects selected German text with Claude Haiku.",
+  "description": "Chrome extension that corrects selected text in any language with Claude Haiku.",
   "private": true,
   "type": "module",
   "engines": {

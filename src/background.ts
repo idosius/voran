@@ -1,5 +1,11 @@
-import { ClaudeError, fixGerman } from './claude';
-import { MENU_ID, STORAGE_KEY_API_KEY } from './constants';
+import { ClaudeError, fixText } from './claude';
+import {
+  MENU_ID,
+  STORAGE_KEY_API_KEY,
+  STORAGE_KEY_LANGUAGE,
+  STORAGE_KEY_REASON_LANGUAGE,
+} from './constants';
+import { normalizeSettings } from './languages';
 import { type FixResponse, type StartMessage, isBackgroundRequest } from './messages';
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -42,13 +48,17 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 });
 
 async function handleFix(text: string): Promise<FixResponse> {
-  const stored = await chrome.storage.local.get(STORAGE_KEY_API_KEY);
+  const stored = await chrome.storage.local.get([
+    STORAGE_KEY_API_KEY,
+    STORAGE_KEY_LANGUAGE,
+    STORAGE_KEY_REASON_LANGUAGE,
+  ]);
   const apiKey = stored[STORAGE_KEY_API_KEY];
   if (typeof apiKey !== 'string' || apiKey === '') {
     return { ok: false, error: 'No API key set.', noKey: true };
   }
   try {
-    return { ok: true, result: await fixGerman(text, apiKey) };
+    return { ok: true, result: await fixText(text, apiKey, normalizeSettings(stored)) };
   } catch (error) {
     const message = error instanceof ClaudeError ? error.message : 'Unexpected error.';
     return { ok: false, error: message, noKey: false };

@@ -33,6 +33,11 @@ describe('createModal', () => {
     expect(root.querySelector('.diff')?.textContent).toContain('<img src=x onerror=alert(1)');
   });
 
+  it('lets the text direction follow the content', () => {
+    createModal(document).showResult('مرحبا', 'مرحبا بك', []);
+    expect(shadow().querySelector('.diff')?.getAttribute('dir')).toBe('auto');
+  });
+
   it('shows whitespace-only changes as visible glyphs', () => {
     const modal = createModal(document);
     modal.showResult('a  b', 'a\tb\n', []);

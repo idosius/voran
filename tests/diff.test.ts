@@ -58,3 +58,26 @@ describe('inlineDiff', () => {
     expect(rebuild(segments, 'remove')).toBe(fixed);
   });
 });
+
+describe('inlineDiff in other scripts', () => {
+  it.each([
+    ['Я люблю яблоки', 'Я люблю яблоко', 'яблоки', 'яблоко'],
+    ['Η γάτα τρώει', 'Η γάτα τρώγει', 'τρώει', 'τρώγει'],
+  ])('replaces whole words, not letters: %j', (original, fixed, removed, added) => {
+    const changes = inlineDiff(original, fixed).filter((part) => part.kind !== 'equal');
+    expect(changes).toEqual([
+      { kind: 'remove', text: removed },
+      { kind: 'add', text: added },
+    ]);
+  });
+});
+
+describe('inlineDiff without spaces', () => {
+  it('splits Chinese text into words', () => {
+    const parts = inlineDiff('我喜欢苹果和香蕉', '我喜欢橙子和香蕉');
+    expect(parts.filter((part) => part.kind !== 'equal')).toEqual([
+      { kind: 'remove', text: '苹果' },
+      { kind: 'add', text: '橙子' },
+    ]);
+  });
+});

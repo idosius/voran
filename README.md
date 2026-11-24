@@ -1,6 +1,6 @@
 # Voran
 
-Chrome extension (Manifest V3). Select German text, right-click, choose **Voran**. Claude Haiku returns a corrected version. A dialog shows an inline word diff (removed words struck through, added words highlighted). Hover (or Tab to) a correction to see the reason in a tooltip. When you close the dialog, the corrected text replaces the selection.
+Chrome extension (Manifest V3). Select text in any language, right-click, choose **Voran**. Claude Haiku returns a corrected version. A dialog shows an inline word diff (removed words struck through, added words highlighted). Hover (or Tab to) a correction to see the reason in a tooltip. When you close the dialog, the corrected text replaces the selection.
 
 ## Requirements
 
@@ -17,11 +17,11 @@ npm run build
 
 1. Open `chrome://extensions` and enable Developer mode.
 2. Click **Load unpacked** and select the `dist/` directory.
-3. Open the extension's options page and save your API key.
+3. Open the extension's options page and save your API key. There you can also set the language of the text you correct (default: auto-detect) and the language of the explanation tooltips (default: English).
 
 ## Usage
 
-Select German text, right-click, choose **Voran**. Close the dialog with the Close button, Esc, or a click outside it.
+Select text, right-click, choose **Voran**. Close the dialog with the Close button, Esc, or a click outside it.
 
 Replacement depends on where the text was selected:
 
@@ -47,7 +47,8 @@ dialog closed -> content script replaces text
 - `src/diff.ts`: inline word-level diff via the `diff` package.
 - `src/modal.ts`: dialog and toast in a shadow root. All text is inserted with `textContent`; `innerHTML` is banned by lint.
 - `src/replace.ts`: selection capture and replacement for fields, contenteditable and read-only text.
-- `src/options.ts`, `src/options.html`: API key form.
+- `src/languages.ts`: supported languages (English and native names), settings validation.
+- `src/options.ts`, `src/options.html`: API key and language settings (searchable language lists).
 
 The selected text is sent to Anthropic. The API key is sent only to `api.anthropic.com`.
 
@@ -96,6 +97,9 @@ Create an HTML file with a `<textarea>`, an `<input>`, a `<div contenteditable>`
 - [ ] No API key: error with an **Open options** button.
 - [ ] Selection over 8000 characters: error, no request sent.
 - [ ] Selection inside an iframe works.
+- [ ] Options: typing "deu" or "日本" filters the language list; unknown text plus Save shows an error and saves nothing; saved values survive reloading the options page.
+- [ ] Auto-detect: German, French and Japanese text are each corrected in their own language. With language = Spanish and explanations = Same as text, Spanish text is corrected with Spanish reasons.
+- [ ] Arabic or Hebrew text renders right-to-left in the dialog.
 
 ## Project layout
 
@@ -113,7 +117,8 @@ tsconfig.node.json   strict config for build and tool configs
 
 - The API key is stored unencrypted in `chrome.storage.local`.
 - Selections are capped at 8000 characters.
-- The prompt targets German; other languages are returned unchanged.
+- With a fixed text language, text clearly in another language is returned unchanged. Use auto-detect to avoid this.
+- The language list is curated (~45 languages); add more in `src/languages.ts`.
 - Selections inside shadow roots of the host page cannot be replaced in place; the corrected text is copied.
 - Read-only and disabled fields are never modified; the corrected text is copied.
 - Requests time out after 30 seconds.
