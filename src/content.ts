@@ -89,7 +89,9 @@ async function run(
 
   const modal = createModal(document);
   modal.showResult(target.original, fixed, segments, detected);
-  await modal.closed;
+  if ((await modal.closed) !== 'apply') {
+    return;
+  }
 
   const outcome = await applyReplacement(document, target, fixed);
   if (outcome === 'copied') {

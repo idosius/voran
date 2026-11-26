@@ -18,6 +18,7 @@ const CSS = `
   border: 1px solid color-mix(in srgb, CanvasText 30%, transparent);
   box-shadow: 0 0 0 1px light-dark(rgb(0 0 0 / 12%), rgb(255 255 255 / 22%)), 0 10px 40px rgb(0 0 0 / 35%);
 }
+.dialog:focus { outline: none; }
 h2 { margin: 0; font-size: 16px; }
 .diff {
   margin: 0; padding: 10px 12px; overflow: auto; border-radius: 6px;
@@ -94,9 +95,12 @@ export interface ErrorAction {
   readonly run: () => void;
 }
 
+// 'apply' only when the user chose to apply the correction; any other dismissal is 'cancel'.
+export type CloseReason = 'apply' | 'cancel';
+
 export interface Modal {
-  // Resolves once the user dismisses the dialog.
-  readonly closed: Promise<void>;
+  // Resolves with how the user dismissed the dialog.
+  readonly closed: Promise<CloseReason>;
   // `segments` carry the reason per correction; without them only the plain diff is shown.
   // `language` is the language the model detected, when it reported one.
   showResult: (
@@ -241,6 +245,32 @@ function attachTooltip(doc: Document, tooltip: HTMLElement, diff: HTMLElement): 
   diff.addEventListener('focusout', hide);
 }
 
+/**
+Whether a keydown is a bare Enter typed inside the dialog, away from anything that handles Enter
+itself: buttons click natively and a correction is only focused to read its reason. Enter while
+composing (IME), held down, or with a modifier is never treated as "apply".
+*/
+function isPlainEnterInDialog(event: KeyboardEvent, dialog: HTMLElement): boolean {
+  if (
+    event.key !== 'Enter' ||
+    event.isComposing ||
+    event.repeat ||
+    event.shiftKey ||
+    event.ctrlKey ||
+    event.altKey ||
+    event.metaKey
+  ) {
+    return false;
+  }
+  const [origin] = event.composedPath();
+  return (
+    origin instanceof Element &&
+    dialog.contains(origin) &&
+    !(origin instanceof HTMLButtonElement) &&
+    origin.closest('.change') === null
+  );
+}
+
 export function createModal(doc: Document): Modal {
   const { host, root } = mountHost(doc);
   const backdrop = el(doc, 'div', 'backdrop');
@@ -249,6 +279,8 @@ export function createModal(doc: Document): Modal {
   dialog.setAttribute('role', 'dialog');
   dialog.setAttribute('aria-modal', 'true');
   dialog.setAttribute('aria-label', 'Voran');
+  // Focusable so a click on the dialog's text keeps keyboard focus (and Enter) inside it.
+  dialog.tabIndex = -1;
   const tooltip = el(doc, 'div', 'tooltip');
   tooltip.id = 'voran-tooltip';
   tooltip.setAttribute('role', 'tooltip');
@@ -256,29 +288,39 @@ export function createModal(doc: Document): Modal {
   backdrop.append(dialog, tooltip);
   root.append(backdrop);
 
-  const { promise: closed, resolve: resolveClosed } = Promise.withResolvers<undefined>();
+  const { promise: closed, resolve: resolveClosed } = Promise.withResolvers<CloseReason>();
+  // True while a correction is shown, so Enter applies it.
+  let applyOnEnter = false;
 
   const onKeydown = (event: KeyboardEvent): void => {
-    if (event.key !== 'Escape') {
+    if (event.key === 'Escape') {
+      event.stopPropagation();
+      close('cancel');
       return;
     }
+    if (!applyOnEnter || !isPlainEnterInDialog(event, dialog)) {
+      return;
+    }
+    event.preventDefault();
     event.stopPropagation();
-    close();
+    close('apply');
   };
-  function close(): void {
+  function close(reason: CloseReason): void {
     doc.removeEventListener('keydown', onKeydown, { capture: true });
     host.remove();
-    resolveClosed(undefined);
+    resolveClosed(reason);
   }
   doc.addEventListener('keydown', onKeydown, { capture: true });
   backdrop.addEventListener('mousedown', (event) => {
     if (event.target === backdrop) {
-      close();
+      close('cancel');
     }
   });
 
   function render(body: readonly HTMLElement[], extra?: ErrorAction, applies = false): void {
-    // Closing the dialog is what applies the correction, so say so on the primary button.
+    // Only the primary button (or Enter) applies a correction; Cancel, Esc and a click outside
+    // discard it.
+    applyOnEnter = applies;
     const closeButton = el(
       doc,
       'button',
@@ -286,12 +328,22 @@ export function createModal(doc: Document): Modal {
       applies ? 'Apply correction' : 'Close',
     );
     closeButton.type = 'button';
-    closeButton.addEventListener('click', close);
+    closeButton.addEventListener('click', () => {
+      close(applies ? 'apply' : 'cancel');
+    });
     const actions = el(doc, 'div', 'actions');
     if (extra !== undefined) {
       const extraButton = el(doc, 'button', undefined, extra.label);
       extraButton.addEventListener('click', extra.run);
       actions.append(extraButton);
+    }
+    if (applies) {
+      const cancelButton = el(doc, 'button', undefined, 'Cancel');
+      cancelButton.type = 'button';
+      cancelButton.addEventListener('click', () => {
+        close('cancel');
+      });
+      actions.append(cancelButton);
     }
     actions.append(closeButton);
     tooltip.hidden = true;

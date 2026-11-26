@@ -1,6 +1,6 @@
 # Voran
 
-Chrome extension (Manifest V3). Select text in any language, right-click, choose **Voran**. Claude Haiku returns a corrected version. A dialog shows an inline word diff (removed words struck through, added words highlighted). Hover (or Tab to) a correction to see the reason in a tooltip. When you close the dialog, the corrected text replaces the selection.
+Chrome extension (Manifest V3). Select text in any language, right-click, choose **Voran**. Claude Haiku returns a corrected version. A dialog shows an inline word diff (removed words struck through, added words highlighted). Hover (or Tab to) a correction to see the reason in a tooltip. When you apply the correction, the corrected text replaces the selection; cancelling leaves it unchanged.
 
 ## Requirements
 
@@ -21,7 +21,7 @@ npm run build
 
 ## Usage
 
-Select text, right-click, choose **Voran**. Close the dialog with the button (**Apply correction** when changes are proposed, **Close** otherwise), Esc, or a click outside it. All three apply the correction.
+Select text, right-click, choose **Voran**. When changes are proposed, **Apply correction** (or Enter) applies them; **Cancel**, Esc or a click outside the dialog discards them and leaves the text alone.
 
 Replacement depends on where the text was selected:
 
@@ -38,7 +38,7 @@ If nothing needs correcting, no dialog opens. A green checkmark appears briefly 
 ```
 right-click -> background (context menu) -> content script (captures selection, shows dialog)
 content script -> background (voran:fix) -> api.anthropic.com -> background -> content script
-dialog closed -> content script replaces text
+dialog applied -> content script replaces text
 ```
 
 - `src/background.ts`: context menu, API key lookup, Claude call. The key never reaches page context.
@@ -90,7 +90,7 @@ Create an HTML file with a `<textarea>`, an `<input>`, a `<div contenteditable>`
 
 - [ ] Menu item appears only when text is selected.
 - [ ] Dialog shows an inline diff (struck-through removals, highlighted additions). Hovering or focusing a correction shows its reason in a tooltip; no bullet list.
-- [ ] Textarea, input, contenteditable: text is replaced after closing. In contenteditable and textarea, Ctrl/Cmd+Z restores the original.
+- [ ] Textarea, input, contenteditable: text is replaced after **Apply correction** or Enter; **Cancel**, Esc and a click outside leave it unchanged. In contenteditable and textarea, Ctrl/Cmd+Z restores the original.
 - [ ] `<p>`: corrected text is on the clipboard and a toast appears.
 - [ ] Already-correct text: no dialog, green checkmark over the text, nothing changes.
 - [ ] Wrong API key: error shown, nothing changes.
