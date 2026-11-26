@@ -21,7 +21,7 @@ async function requestFix(text: string): Promise<FixResponse> {
     return {
       ok: false,
       error: 'Extension was reloaded. Reload this page and try again.',
-      noKey: false,
+      needsOptions: false,
     };
   }
 }
@@ -69,7 +69,7 @@ async function run(
   if (!response.ok) {
     await showErrorModal(
       response.error,
-      response.noKey
+      response.needsOptions
         ? {
             label: 'Open options',
             run: (): void => {

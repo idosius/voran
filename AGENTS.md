@@ -4,13 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Voran is a Chrome extension (Manifest V3, TypeScript, no framework). The user selects text, right-clicks **Fix text with Voran**, and Claude Haiku (`claude-haiku-5-5`) returns a corrected version. A dialog shows an inline word diff, and applying it (button or Enter) replaces the selection; Cancel, Esc or a click outside discards it. See `README.md` for the usage table, manual test checklist and known limitations.
+Voran is a Chrome and Firefox extension (Manifest V3, TypeScript, no framework, one source for both). The user selects text, right-clicks **Fix text with Voran**, and Claude Haiku (`claude-haiku-5-5`) returns a corrected version. A dialog shows an inline word diff, and applying it (button or Enter) replaces the selection; Cancel, Esc or a click outside discards it. See `README.md` for the usage table, manual test checklist and known limitations.
 
 ## Commands
 
 ```sh
-npm run build          # esbuild -> dist/ (load dist/ unpacked in chrome://extensions)
+npm run build          # esbuild -> dist/chrome and dist/firefox (load dist/chrome unpacked in chrome://extensions)
 npm run watch          # rebuild on change; static files (manifest.json, options.html) copied only at start
+npm run lint:firefox   # web-ext lint on dist/firefox (build first)
+npm run start:firefox  # web-ext run: fresh Firefox profile with dist/firefox loaded, auto-reload
 npm run typecheck      # tsc for src+tests (tsconfig.json) and build/config files (tsconfig.node.json)
 npm run lint           # eslint, --max-warnings 0
 npm run format         # prettier --write (format:check to verify)
@@ -24,17 +26,17 @@ ANTHROPIC_API_KEY=... node eval/run.mjs --label NAME  # model eval (eval/cases.j
 
 Commits use Conventional Commits (`type(scope)!: subject`).
 
-Node >= 22. After a rebuild, reload the extension on `chrome://extensions` and reload the tested tab.
+Node >= 22. After a rebuild, reload the extension on `chrome://extensions` (or `about:debugging` in Firefox) and reload the tested tab.
 
 ## Architecture
 
-Three separate esbuild IIFE bundles (`background`, `content`, `options`), each entry in `src/`. They talk only via `chrome.runtime` messages typed in `src/messages.ts` (type guards like `isBackgroundRequest` validate every incoming message).
+Three separate esbuild IIFE bundles (`background`, `content`, `options`), each entry in `src/`, built once per browser. `build.mjs` derives the Firefox manifest from `manifest.json` (`background.scripts` event page instead of `service_worker`, no `minimum_chrome_version`, `browser_specific_settings.gecko` with id `voran@voran`). Code uses plain promise-based `chrome.*`, which Firefox supports; no polyfill. They talk only via `chrome.runtime` messages typed in `src/messages.ts` (type guards like `isBackgroundRequest` validate every incoming message).
 
 Flow: context-menu click in `background.ts` -> `voran:start` to the content script in the clicked frame (injects `content.js` if the tab predates install) -> `content.ts` shows a "Checking…" pill and sends `voran:fix` -> `background.ts` reads the API key and language settings from `chrome.storage.local`, calls `claude.ts` -> result returns to `content.ts` -> `modal.ts` shows the diff (plus the language the model detected in auto mode) -> if the user applies (`modal.closed` resolves `'apply'`), `replace.ts` applies the text.
 
 Key points spanning files:
 
-- API key is read and used only in the background service worker; it must never reach page context. Only `https://api.anthropic.com/*` is a host permission.
+- API key is read and used only in the background script (service worker in Chrome, event page in Firefox); it must never reach page context. Only `https://api.anthropic.com/*` is a host permission. Users can withhold it (Chrome site access, Firefox about:addons), so `background.ts` calls `requireApiAccess` (`permissions.ts`) right before an API request (not for cached or letterless text) and returns an error with the options action. The options page, opened on install, shows a grant button while access is missing.
 - `claude.ts` asks the model to call a tool (`tool_choice: auto`, since a forced call disables thinking; one retry if it ends its turn in plain text, then the text counts as correct; one 60 s deadline covers both): `submit_correction` (ordered `segments`: unchanged `{text}` or changed `{original, fixed, reason}`) or `confirm_correct`. No free-text parsing. `fixed` is derived by joining segments. Segment types and guards live in `messages.ts`.
 - `cache.ts` keeps the last 50 results in `chrome.storage.session` (keyed by SHA-256 of model + settings + text), stores each applied correction as already correct, and merges concurrent identical requests. `claude.ts` marks tools + system prompt as a cacheable prompt prefix and skips the API for text without letters.
 - `diff.ts` (uses the `diff` package) is the fallback inline diff when no per-change segments are available.

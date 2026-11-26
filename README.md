@@ -1,11 +1,11 @@
 # Voran
 
-Chrome extension (Manifest V3). Select text in any language, right-click, choose **Fix text with Voran**. Claude Haiku returns a corrected version. A dialog shows an inline word diff (removed words struck through, added words highlighted). Hover (or Tab to) a correction to see the reason in a tooltip. When you apply the correction, the corrected text replaces the selection; cancelling leaves it unchanged.
+Chrome and Firefox extension (Manifest V3). Select text in any language, right-click, choose **Fix text with Voran**. Claude Haiku returns a corrected version. A dialog shows an inline word diff (removed words struck through, added words highlighted). Hover (or Tab to) a correction to see the reason in a tooltip. When you apply the correction, the corrected text replaces the selection; cancelling leaves it unchanged.
 
 ## Requirements
 
 - Node.js 22 or newer
-- Chrome 120 or newer
+- Chrome 120 or newer, or Firefox 140 or newer (desktop)
 - An Anthropic API key
 
 ## Install
@@ -15,9 +15,17 @@ npm install
 npm run build
 ```
 
+The build writes one package per browser: `dist/chrome/` and `dist/firefox/`.
+
+Chrome:
+
 1. Open `chrome://extensions` and enable Developer mode.
-2. Click **Load unpacked** and select the `dist/` directory.
-3. Open the extension's options page and enter your API key. There you can also set the language of the text you correct (default: auto-detect) and the language of the explanation tooltips (default: English). Changes save automatically.
+2. Click **Load unpacked** and select the `dist/chrome/` directory.
+
+Firefox:
+
+1. Run `npm run start:firefox` (opens a fresh Firefox profile with Voran loaded), or open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on…** and select `dist/firefox/manifest.json`.
+   The options page opens on install. Enter your API key there. If it shows **Grant access to api.anthropic.com**, click it: Voran needs that access to send text for correction. You can withhold it later (Chrome: the extension's **Site access** setting; Firefox: `about:addons`), and Voran then asks you to grant it again. There you can also set the language of the text you correct (default: auto-detect) and the language of the explanation tooltips (default: English). Changes save automatically.
 
 ## Usage
 
@@ -49,6 +57,7 @@ dialog applied -> content script replaces text
 - `src/replace.ts`: selection capture and replacement for fields, contenteditable and read-only text.
 - `src/languages.ts`: supported languages (English and native names), settings validation.
 - `src/options.ts`, `src/options.html`: API key and language settings (searchable language lists).
+- `src/permissions.ts`: checks and requests host access to `api.anthropic.com` (revocable in Firefox).
 
 The selected text is sent to Anthropic. The API key is sent only to `api.anthropic.com`.
 
@@ -58,11 +67,13 @@ The selected text is sent to Anthropic. The API key is sent only to `api.anthrop
 npm run watch
 ```
 
-Rebuilds `dist/` on source changes. Static files (`manifest.json`, `options.html`) are copied once at start; rerun after editing them. After each rebuild, click the reload icon for Voran on `chrome://extensions`, then reload the tab you are testing in.
+Rebuilds `dist/chrome/` and `dist/firefox/` on source changes. Static files (`manifest.json`, `options.html`) are copied once at start; rerun after editing them. After each rebuild, click the reload icon for Voran on `chrome://extensions` (Chrome) or **Reload** on `about:debugging` (Firefox; `npm run start:firefox` reloads by itself), then reload the tab you are testing in.
+
+The Firefox manifest is generated from `manifest.json` in `build.mjs`: the background script runs as an event page (`background.scripts`), `minimum_chrome_version` is dropped, and `browser_specific_settings.gecko` adds the add-on ID `voran@voran` and the minimum version.
 
 Debugging:
 
-- Service worker: **service worker** link on the extension card on `chrome://extensions`.
+- Background: **service worker** link on the extension card on `chrome://extensions`; in Firefox, **Inspect** next to Voran on `about:debugging`.
 - Content script and dialog: the page's DevTools console. Elements appear under `<voran-root>`.
 - Options page: DevTools on the options tab.
 
@@ -75,8 +86,11 @@ Debugging:
 | `npm run format:check` | Prettier (`npm run format` to fix)                                   |
 | `npm test`             | Vitest with happy-dom and coverage thresholds                        |
 | `npm run check`        | All of the above                                                     |
+| `npm run lint:firefox` | `web-ext lint` on `dist/firefox/` (build first)                      |
 
 ESLint runs with `--max-warnings 0`. `innerHTML`, `outerHTML` and `insertAdjacentHTML` are errors.
+
+`npm run lint:firefox` reports one expected warning, `KEY_FIREFOX_ANDROID_UNSUPPORTED_BY_MIN_VERSION`: Firefox for Android only knows `data_collection_permissions` from version 142. Voran does not support Android (no context menus there), so the manifest declares no `gecko_android` and keeps desktop Firefox ESR 140 as the minimum.
 
 ### Unit tests
 
@@ -84,7 +98,7 @@ ESLint runs with `--max-warnings 0`. `innerHTML`, `outerHTML` and `insertAdjacen
 
 ### Manual test checklist
 
-Create an HTML file with a `<textarea>`, an `<input>`, a `<div contenteditable>` and a `<p>`, open it in Chrome, and use text such as:
+Create an HTML file with a `<textarea>`, an `<input>`, a `<div contenteditable>` and a `<p>`, open it in Chrome and in Firefox, and use text such as:
 
 > Ich habe gestern ein Buch gelesen, das war sehr interessant gewesen. Die Kinder spielt im Garten.
 
@@ -101,12 +115,14 @@ Create an HTML file with a `<textarea>`, an `<input>`, a `<div contenteditable>`
 - [ ] Auto-detect: German, French and Japanese text are each corrected in their own language. With language = Spanish and explanations = Same as text, Spanish text is corrected with Spanish reasons.
 - [ ] Detected language: with language = auto-detect, the dialog shows "Detected language: …" under the diff; with a fixed language, no such line appears.
 - [ ] Arabic or Hebrew text renders right-to-left in the dialog.
+- [ ] Fresh install: the options page opens by itself.
+- [ ] API access: revoke "Access your data for api.anthropic.com" in `about:addons` > Voran > Permissions (Firefox). Voran shows an error with an **Open options** button; an already-open options page shows **Grant access to api.anthropic.com** without reloading. Dismissing the prompt shows "Access not granted."; granting hides the button and corrections work again. Cached text and text without letters still give their normal result while access is revoked.
 
 ## Project layout
 
 ```
 manifest.json        extension manifest
-build.mjs            esbuild bundling into dist/
+build.mjs            esbuild bundling into dist/chrome and dist/firefox
 src/                 extension source
 tests/               unit tests
 eslint.config.js     lint rules
@@ -117,6 +133,7 @@ tsconfig.node.json   strict config for build and tool configs
 ## Limitations
 
 - The API key is stored unencrypted in `chrome.storage.local`.
+- Firefox: a temporary add-on is removed when Firefox restarts. Firefox for Android has no context menus, so Voran does not work there.
 - Selections are capped at 8000 characters.
 - With a fixed text language, text clearly in another language is returned unchanged. Use auto-detect to avoid this.
 - Auto-detect can misjudge very short or ambiguous selections (a single word, close language pairs). The dialog shows the detected language so a wrong guess is visible.

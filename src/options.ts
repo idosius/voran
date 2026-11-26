@@ -15,6 +15,7 @@ import {
   languageLabel,
   normalizeSettings,
 } from './languages';
+import { hasApiAccess, requestApiAccess } from './permissions';
 
 function requireElement<T extends HTMLElement>(id: string, type: new () => T): T {
   const element = document.querySelector(`#${id}`);
@@ -30,6 +31,8 @@ const languageInput = requireElement('language', HTMLInputElement);
 const reasonLanguageInput = requireElement('reasonLanguage', HTMLInputElement);
 const status = requireElement('status', HTMLParagraphElement);
 const fields = [input, languageInput, reasonLanguageInput];
+const access = requireElement('access', HTMLElement);
+const grantAccess = requireElement('grantAccess', HTMLButtonElement);
 
 const labels = LANGUAGES.map((language) => languageLabel(language));
 attachCombobox(languageInput, [AUTO_LABEL, ...labels]);
@@ -130,3 +133,28 @@ form.addEventListener('submit', (event) => {
 for (const field of fields) {
   field.addEventListener('change', queueSave);
 }
+
+// The user can withhold API access (Chrome site access setting, Firefox about:addons), also while
+// this page is open.
+async function showAccess(): Promise<void> {
+  access.hidden = await hasApiAccess(chrome.permissions);
+}
+
+async function grant(): Promise<void> {
+  status.textContent = '';
+  if (!(await requestApiAccess(chrome.permissions))) {
+    status.textContent = 'Access not granted.';
+  }
+  await showAccess();
+}
+
+grantAccess.addEventListener('click', () => {
+  void grant();
+});
+chrome.permissions.onAdded.addListener(() => {
+  void showAccess();
+});
+chrome.permissions.onRemoved.addListener(() => {
+  void showAccess();
+});
+void showAccess();

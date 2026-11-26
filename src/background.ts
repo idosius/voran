@@ -1,5 +1,5 @@
 import { createFixCache } from './cache';
-import { ClaudeError, fixText } from './claude';
+import { ClaudeError, fixText, hasLetters } from './claude';
 import {
   MENU_ID,
   STORAGE_KEY_API_KEY,
@@ -8,13 +8,18 @@ import {
 } from './constants';
 import { normalizeSettings } from './languages';
 import { type FixResponse, type StartMessage, isBackgroundRequest } from './messages';
+import { NoAccessError, requireApiAccess } from './permissions';
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener(({ reason }) => {
   chrome.contextMenus.create({
     id: MENU_ID,
     title: 'Fix text with Voran',
     contexts: ['selection'],
   });
+  // First run: the options page asks for the API key and, if missing, API access.
+  if (reason === 'install') {
+    void chrome.runtime.openOptionsPage();
+  }
 });
 
 async function sendStart(tabId: number, frameId: number, message: StartMessage): Promise<void> {
@@ -64,15 +69,25 @@ async function handleFix(text: string): Promise<FixResponse> {
   ]);
   const apiKey = stored[STORAGE_KEY_API_KEY];
   if (typeof apiKey !== 'string' || apiKey === '') {
-    return { ok: false, error: 'No API key set.', noKey: true };
+    return { ok: false, error: 'No API key set.', needsOptions: true };
   }
   try {
     const settings = normalizeSettings(stored);
-    const result = await fixCache.run(text, settings, () => fixText(text, apiKey, settings));
+    // Access is checked only when the API is called: cached results and text without letters
+    // need no request.
+    const result = await fixCache.run(text, settings, async () => {
+      if (hasLetters(text)) {
+        await requireApiAccess(chrome.permissions);
+      }
+      return fixText(text, apiKey, settings);
+    });
     return { ok: true, result };
   } catch (error) {
+    if (error instanceof NoAccessError) {
+      return { ok: false, error: error.message, needsOptions: true };
+    }
     const message = error instanceof ClaudeError ? error.message : 'Unexpected error.';
-    return { ok: false, error: message, noKey: false };
+    return { ok: false, error: message, needsOptions: false };
   }
 }
 

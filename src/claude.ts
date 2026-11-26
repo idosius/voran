@@ -48,6 +48,14 @@ export class ClaudeError extends Error {
   override readonly name = 'ClaudeError';
 }
 
+/**
+Text without a single letter (blank, numbers, symbols) has no spelling or grammar to check, so
+`fixText` rejects it without calling the API.
+*/
+export function hasLetters(text: string): boolean {
+  return /\p{L}/u.test(text);
+}
+
 function messageForStatus(status: number): string {
   switch (status) {
     case 401:
@@ -199,8 +207,7 @@ export async function fixText(
     throw new ClaudeError(`Selection too long (max ${String(MAX_INPUT_CHARS)} characters).`);
   }
 
-  // Text without a single letter (blank, numbers, symbols) has no spelling or grammar to check.
-  if (!/\p{L}/u.test(text)) {
+  if (!hasLetters(text)) {
     throw new ClaudeError('Nothing to correct.');
   }
 
