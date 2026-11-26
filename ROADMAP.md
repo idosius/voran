@@ -27,7 +27,7 @@ Assumption: MVP = installable by strangers, so privacy, permissions and a11y cou
 1. Options: **Test key** button (cheap request), show/hide key toggle, clear key.
 2. Keyboard shortcut via `commands` in manifest to trigger Voran on the current selection (also an accessibility win).
 3. Extension icons (16/32/48/128) and `action` entry; version single-sourced from `package.json`.
-4. First-run: open options page on install when no key (`onInstalled` reason `install`).
+4. ~~First-run: open options page on install~~ (done, `onInstalled` reason `install`).
 5. Store assets: privacy policy page (selected text goes to Anthropic, key stays local), description, screenshots.
 
 - Deferred (post-MVP): history, per-site disable, streaming.
@@ -52,22 +52,24 @@ Goal: user picks provider, model and key in options. Anthropic stays default.
 
 ## Phase 2c — Firefox support (MVP)
 
-Goal: same codebase builds for Chrome and Firefox from one source. Firefox MV3, Firefox 128+ (confirm minimum when implementing).
+Goal: same codebase builds for Chrome and Firefox from one source. Firefox MV3, Firefox 140+ (first version with `data_collection_permissions`; Android 142+).
 
-1. Build targets: `build.mjs --target=chrome|firefox` emits `dist/chrome` and `dist/firefox`; manifest generated from a base `manifest.json` plus per-browser overrides (`manifest.firefox.json`).
-2. Firefox manifest differences:
+Done (dev build): items 1, 2, the plain `chrome.*` choice in 3, and the `web-ext` scripts in 4. Still open: manual verification of the rest of 3, CI, release.
+
+1. ~~Build targets~~ (done): `npm run build` emits `dist/chrome` and `dist/firefox`; `build.mjs` derives the Firefox manifest from `manifest.json` (`firefoxManifest`).
+2. ~~Firefox manifest differences~~ (done):
    - `background: { "scripts": ["background.js"] }` (event page) instead of `service_worker`; Chrome keeps `service_worker`.
-   - `browser_specific_settings.gecko: { id, strict_min_version }` (and `data_collection_permissions` as AMO now requires).
-   - Host permissions are optional and user-granted in Firefox MV3, so the runtime permission flow from Phase 2b is required, not optional. Show a clear "grant access" step on first run.
+   - `browser_specific_settings.gecko: { id: 'voran@voran', strict_min_version, data_collection_permissions }`.
+   - Users can withhold host access (Firefox about:addons, Chrome site access): `requireApiAccess` right before each API request, options page opens on install and shows a grant button while access is missing. Revisit with Phase 2b optional per-provider permissions.
    - Remove `minimum_chrome_version` from the Firefox build.
 3. API differences handled in code:
-   - Keep `chrome.*` (promise-based in Firefox MV3) or add `webextension-polyfill`; prefer plain `chrome.*` and avoid the polyfill dependency.
+   - ~~Keep `chrome.*`~~ (done): plain `chrome.*`, no `webextension-polyfill`.
    - `chrome.storage.local.setAccessLevel` (Phase 3.2) is absent in Firefox: feature-detect, skip.
-   - Injection and `contextMenus` item `contexts: ['selection']` work; verify `frameId` handling and the "Receiving end does not exist" error string, which differs in Firefox (match on a helper, not the literal text).
+   - Injection and `contextMenus` item `contexts: ['selection']` work; verify `frameId` handling. Firefox's error is "Could not establish connection. Receiving end does not exist.", which the substring check in `background.ts:sendStart` matches; confirm manually.
    - `execCommand('insertText')` behaviour in Firefox textarea/contenteditable: verify undo stack; `navigator.clipboard.writeText` needs user activation in content scripts, keep the `execCommand('copy')` fallback.
    - Shadow-root dialog styling (`<voran-root>`): check `:host`, `focus-visible`, `forced-colors` in Firefox.
-4. Tooling: add `web-ext lint` and `web-ext run` scripts; CI builds both targets and lints the Firefox package. Manual checklist runs on both browsers.
-5. Release: AMO listing (source-code submission instructions because of bundling: document `npm ci && npm run build:firefox`), privacy text, screenshots.
+4. Tooling: ~~`lint:firefox` and `start:firefox` scripts~~ (done); CI builds both targets and lints the Firefox package. Manual checklist runs on both browsers.
+5. Release: AMO listing (source-code submission instructions because of bundling: document `npm ci && npm run build`, output in `dist/firefox`), privacy text, screenshots.
 
 ## Phase 3 — Security
 
@@ -118,7 +120,7 @@ Risk: 3.1 (no static content script), 2b.5 (optional host permissions) and 2c (F
 ## Verification
 
 - Providers: contract test passes for every adapter; manual run with a real key per vendor and with local Ollama; wrong key, no key, denied host permission, and provider switch each show a clear error; confirm in DevTools network tab that each key only goes to its own host.
-- Firefox: `npm run build:firefox`, `web-ext lint` clean, load via `about:debugging` (temporary add-on) and run the full manual checklist (textarea, input, contenteditable, read-only, iframe, options autosave, permission grant flow). Compare with Chrome.
+- Firefox: `npm run build`, `npm run lint:firefox` clean, load via `about:debugging` (temporary add-on) and run the full manual checklist (textarea, input, contenteditable, read-only, iframe, options autosave, permission grant flow). Compare with Chrome.
 - `npm run check` after every phase; new logic gets tests (mock `fetch`/`chrome`).
 - `npm run build`, reload at `chrome://extensions`, run the README manual checklist plus new cases: double right-click, Cancel/Esc leaves text unchanged, password field refused, 429 retry, key test button, keyboard shortcut.
 - Permissions: after Phase 3.1, `chrome://extensions` details must show no "all sites" access; confirm `activeTab` flow works in iframes.
