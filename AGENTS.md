@@ -34,6 +34,7 @@ Key points spanning files:
 
 - API key is read and used only in the background service worker; it must never reach page context. Only `https://api.anthropic.com/*` is a host permission.
 - `claude.ts` asks the model to call a tool (`tool_choice: auto`, since a forced call disables thinking; one retry if it ends its turn in plain text, then the text counts as correct; one 60 s deadline covers both): `submit_correction` (ordered `segments`: unchanged `{text}` or changed `{original, fixed, reason}`) or `confirm_correct`. No free-text parsing. `fixed` is derived by joining segments. Segment types and guards live in `messages.ts`.
+- `cache.ts` keeps the last 50 results in `chrome.storage.session` (keyed by SHA-256 of model + settings + text), stores each applied correction as already correct, and merges concurrent identical requests. `claude.ts` marks tools + system prompt as a cacheable prompt prefix and skips the API for text without letters.
 - `diff.ts` (uses the `diff` package) is the fallback inline diff when no per-change segments are available.
 - `modal.ts` renders in a shadow root under `<voran-root>`. All page/model text goes in via `textContent`.
 - `replace.ts` captures the selection at `contextmenu` time and replaces it by target type (input/textarea, contenteditable keeping undo stack, else clipboard fallback; also clipboard if text changed while dialog was open).

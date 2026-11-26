@@ -198,7 +198,8 @@ export async function fixText(
     throw new ClaudeError(`Selection too long (max ${String(MAX_INPUT_CHARS)} characters).`);
   }
 
-  if (text.trim() === '') {
+  // Text without a single letter (blank, numbers, symbols) has no spelling or grammar to check.
+  if (!/\p{L}/u.test(text)) {
     throw new ClaudeError('Nothing to correct.');
   }
 
@@ -215,7 +216,12 @@ export async function fixText(
     // the most obvious error per pass (capitalization and agreement slip through). Letting it choose
     // the tool keeps adaptive thinking on; low effort recovers nearly all fixes at the least delay.
     output_config: { effort: EFFORT },
-    system: buildSystemPrompt(settings),
+    // Tools and system prompt form a prefix that only changes with the settings. Caching it makes
+    // repeat requests (and the retry below) read it at a tenth of the price. Below the model's
+    // minimum cacheable length the marker is silently ignored.
+    system: [
+      { type: 'text', text: buildSystemPrompt(settings), cache_control: { type: 'ephemeral' } },
+    ],
     tools: [
       {
         name: TOOL_NAME,
