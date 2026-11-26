@@ -85,9 +85,10 @@ Goal: same codebase builds for Chrome and Firefox from one source. Firefox MV3, 
 
 1. Content script cost on every page/frame: after Phase 3.1 it only loads on demand. Otherwise split the stub from `modal`/`diff` code.
 2. Minify bundles (`build.mjs`: `minify: !watch`, `sourcemap: !release`).
-3. Request tuning in `claude.ts`: `max_tokens = 2*len + 2000` is generous; measure latency on 100/1000/8000 chars with Haiku and lower the cap if safe. Skip prompt caching (system prompt is below the Haiku minimum).
-4. Abort in-flight request on cancel (Phase 1.3) to stop paying for unwanted output.
-5. Confirm `diff` and `planEdits` stay fast at 8000 chars (add one benchmark-style test with a time bound).
+3. Request tuning in `claude.ts`: `max_tokens = 2*len + 2000` is generous; measure latency on 100/1000/8000 chars with Haiku and lower the cap if safe. Prompt caching is on and works (eval: ~905 cached input tokens per request).
+4. Suggestion (shelved): return only the edits instead of re-typing the whole text as `segments`. Eval baseline: re-typing is ~13% of output tokens (~40/case, ~10% of cost); thinking is ~85%. Main gain is speed (~1.5-2 s) and fewer `max_tokens` failures on long texts. Main risk: an edit applied to the wrong copy of a repeated word. If built: each edit carries `original` plus the 1-3 words before it; place by whole-word match of that phrase; apply only when it matches exactly once, otherwise drop (never guess); place each edit independently, reject overlaps; `original` must be non-empty (insertions replace a neighbouring word). Not character/word indices (models miscount). Add eval cases for repeated words, short words inside longer ones, Hebrew prefix letters, NBSP; count dropped edits; run with `--reps 4`.
+5. Abort in-flight request on cancel (Phase 1.3) to stop paying for unwanted output.
+6. Confirm `diff` and `planEdits` stay fast at 8000 chars (add one benchmark-style test with a time bound).
 
 ## Phase 5 — Accessibility
 
