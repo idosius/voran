@@ -81,6 +81,9 @@
         color: LinkText;
         white-space: nowrap;
       }
+      #access {
+        margin: 12px 0 0;
+      }
       #status {
         min-height: 1.5em;
         margin: 12px 0 0;
@@ -89,6 +92,10 @@
   </head>
   <body>
     <h1>Voran</h1>
+    <section id="access" hidden>
+      <p>Voran needs access to api.anthropic.com to correct text.</p>
+      <button id="grantAccess" type="button">Grant access to api.anthropic.com</button>
+    </section>
     <form id="form">
       <label for="language">Language of the text you correct</label>
       <div class="combo">
