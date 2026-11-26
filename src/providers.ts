@@ -8,8 +8,8 @@ export interface ProviderInfo {
   readonly product: string;
   readonly host: string;
   readonly keyUrl: string;
-  // Prefix every key of this provider starts with, if it has a distinctive one.
-  readonly keyPrefix?: string;
+  // Matches the keys this provider issues.
+  readonly keyPattern: RegExp;
 }
 
 export const PROVIDER_INFO: Readonly<Record<ProviderId, ProviderInfo>> = {
@@ -19,7 +19,7 @@ export const PROVIDER_INFO: Readonly<Record<ProviderId, ProviderInfo>> = {
     product: 'Claude',
     host: 'api.anthropic.com',
     keyUrl: 'https://console.anthropic.com/settings/keys',
-    keyPrefix: 'sk-ant-',
+    keyPattern: /^sk-ant-/,
   },
   openai: {
     id: 'openai',
@@ -27,6 +27,8 @@ export const PROVIDER_INFO: Readonly<Record<ProviderId, ProviderInfo>> = {
     product: 'OpenAI',
     host: 'api.openai.com',
     keyUrl: 'https://platform.openai.com/api-keys',
+    // sk-proj-, sk-svcacct-, legacy sk-...; everything starting with sk- except Anthropic's.
+    keyPattern: /^sk-(?!ant-)/,
   },
 };
 
@@ -43,8 +45,5 @@ The other provider an API key evidently belongs to, judged by its prefix, so a k
 the wrong vendor after switching providers. Undefined when the key may belong to `provider`.
 */
 export function keyOwner(provider: ProviderId, apiKey: string): ProviderInfo | undefined {
-  return PROVIDERS.find(
-    (other) =>
-      other.id !== provider && other.keyPrefix !== undefined && apiKey.startsWith(other.keyPrefix),
-  );
+  return PROVIDERS.find((other) => other.id !== provider && other.keyPattern.test(apiKey));
 }

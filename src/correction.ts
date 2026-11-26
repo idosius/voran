@@ -47,6 +47,8 @@ export interface ToolCall {
 export type Reply =
   | { readonly kind: 'tool'; readonly calls: readonly ToolCall[] }
   | { readonly kind: 'plain' }
+  // A tool call whose arguments could not be decoded; worth one retry, but never means "correct".
+  | { readonly kind: 'malformed' }
   | { readonly kind: 'truncated' }
   | { readonly kind: 'invalid' };
 
@@ -317,9 +319,10 @@ export async function fixText(
   // One deadline for the whole correction, retry included, so the user never waits much past it.
   const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   let reply = adapter.read(await send(request, product, signal, fetchImpl));
-  // With tool choice "auto" the model may finish with plain text despite the prompt; ask once more.
-  // Truncated or refused replies are not retried: the same request would fail the same way.
-  if (reply.kind === 'plain') {
+  // With tool choice "auto" the model may finish with plain text despite the prompt, or garble the
+  // tool arguments; ask once more. Truncated or refused replies are not retried: the same request
+  // would fail the same way.
+  if (reply.kind === 'plain' || reply.kind === 'malformed') {
     reply = adapter.read(await send(request, product, signal, fetchImpl));
     if (reply.kind === 'plain') {
       // Twice no tool call: the model had no correction to submit, so treat the text as correct.
@@ -334,6 +337,22 @@ export async function fixText(
     throw new CorrectionError(`Unexpected response from ${product}.`);
   }
   return result;
+}
+
+/**
+OpenAI answers an account without credit with HTTP 429 too, but retrying never helps there.
+*/
+async function isOutOfQuota(response: Response): Promise<boolean> {
+  if (response.status !== 429) {
+    return false;
+  }
+  try {
+    const body = (await response.json()) as unknown;
+    const error = isRecord(body) ? body['error'] : undefined;
+    return isRecord(error) && error['code'] === 'insufficient_quota';
+  } catch {
+    return false;
+  }
 }
 
 interface WireRequest {
@@ -363,7 +382,11 @@ async function send(
   }
 
   if (!response.ok) {
-    throw new CorrectionError(messageForStatus(response.status, product));
+    throw new CorrectionError(
+      (await isOutOfQuota(response))
+        ? `No ${product} credit left. Check billing for your API key.`
+        : messageForStatus(response.status, product),
+    );
   }
 
   try {

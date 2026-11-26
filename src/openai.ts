@@ -71,7 +71,12 @@ function readOpenai(body: unknown): Reply {
       continue;
     }
     if (item['type'] === 'function_call' && typeof item['name'] === 'string') {
-      calls.push({ name: item['name'], input: parseArguments(item['arguments']) });
+      const input = parseArguments(item['arguments']);
+      if (input === undefined) {
+        // Without strict mode the model can emit invalid JSON (e.g. a raw line break in a string).
+        return { kind: 'malformed' };
+      }
+      calls.push({ name: item['name'], input });
     }
     refused ||= isRefusal(item);
   }

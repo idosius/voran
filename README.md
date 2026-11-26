@@ -53,7 +53,7 @@ dialog applied -> content script replaces text
 - `src/languages.ts`: supported languages (English and native names), settings validation.
 - `src/options.ts`, `src/options.html`: provider, API key and language settings (searchable language lists).
 
-The selected text is sent to the chosen provider (Anthropic or OpenAI; OpenAI requests use `store: false`). The API key is sent only to that provider's API host. There is one key field: switching provider in the options clears it, and a key that clearly belongs to Anthropic (`sk-ant-`) is never sent to OpenAI.
+The selected text is sent to the chosen provider (Anthropic or OpenAI; OpenAI requests use `store: false`). The API key is sent only to that provider's API host. Each provider's key is stored separately; the options page shows the key of the selected provider. A key that belongs to the other provider (`sk-ant-…` is Anthropic, any other `sk-…` OpenAI) is never sent.
 
 ## Development
 
@@ -97,8 +97,9 @@ Create an HTML file with a `<textarea>`, an `<input>`, a `<div contenteditable>`
 - [ ] `<p>`: corrected text is on the clipboard and a toast appears.
 - [ ] Already-correct text: no dialog, green checkmark over the text, nothing changes.
 - [ ] Wrong API key: error shown, nothing changes.
-- [ ] OpenAI: select OpenAI in the options (the key field clears), enter an OpenAI key, correct text in a textarea and in contenteditable. A server error names OpenAI. Switching back to Anthropic needs the Anthropic key again.
-- [ ] OpenAI selected with an Anthropic key (`sk-ant-…`): error, no request sent.
+- [ ] OpenAI: select OpenAI in the options (the key field shows the OpenAI key, empty at first), enter an OpenAI key, correct text in a textarea and in contenteditable. A server error names OpenAI. Switching back to Anthropic shows the Anthropic key again and corrections go to Claude.
+- [ ] Paste a key, then switch provider right away: the key is kept under the provider it was typed for.
+- [ ] An Anthropic key in the OpenAI field (or the reverse): error, no request sent.
 - [ ] No API key: error with an **Open options** button.
 - [ ] Selection over 8000 characters: error, no request sent.
 - [ ] Selection inside an iframe works.

@@ -48,14 +48,14 @@ describe('fixText', () => {
       { text: '.' },
     ];
     const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(toolUse({ segments }))));
-    const result = await fix('Die Kinder spielt.', 'sk-test', fetchMock);
+    const result = await fix('Die Kinder spielt.', 'sk-ant-test', fetchMock);
 
     expect(result).toEqual({ fixed: 'Die Kinder spielen.', segments });
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('https://api.anthropic.com/v1/messages');
     expect(init.method).toBe('POST');
     expect(init.headers).toMatchObject({
-      'x-api-key': 'sk-test',
+      'x-api-key': 'sk-ant-test',
       'anthropic-version': '2023-06-01',
       'anthropic-dangerous-direct-browser-access': 'true',
     });

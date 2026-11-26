@@ -1,14 +1,15 @@
 import { createFixCache } from './cache';
 import {
   MENU_ID,
-  STORAGE_KEY_API_KEY,
   STORAGE_KEY_LANGUAGE,
   STORAGE_KEY_PROVIDER,
   STORAGE_KEY_REASON_LANGUAGE,
+  STORAGE_KEYS_API_KEY,
 } from './constants';
 import { CorrectionError, fixText } from './correction';
 import { normalizeSettings } from './languages';
 import { type FixResponse, type StartMessage, isBackgroundRequest } from './messages';
+import { PROVIDER_INFO } from './providers';
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
@@ -58,18 +59,23 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 const fixCache = createFixCache(chrome.storage.session);
 
 async function handleFix(text: string): Promise<FixResponse> {
+  // One read, so the provider and its key always come from the same moment.
   const stored = await chrome.storage.local.get([
-    STORAGE_KEY_API_KEY,
+    ...Object.values(STORAGE_KEYS_API_KEY),
     STORAGE_KEY_LANGUAGE,
     STORAGE_KEY_REASON_LANGUAGE,
     STORAGE_KEY_PROVIDER,
   ]);
-  const apiKey = stored[STORAGE_KEY_API_KEY];
+  const settings = normalizeSettings(stored);
+  const apiKey = stored[STORAGE_KEYS_API_KEY[settings.provider]];
   if (typeof apiKey !== 'string' || apiKey === '') {
-    return { ok: false, error: 'No API key set.', noKey: true };
+    return {
+      ok: false,
+      error: `No ${PROVIDER_INFO[settings.provider].company} API key set.`,
+      noKey: true,
+    };
   }
   try {
-    const settings = normalizeSettings(stored);
     const result = await fixCache.run(text, settings, () => fixText(text, apiKey, settings));
     return { ok: true, result };
   } catch (error) {

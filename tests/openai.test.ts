@@ -124,14 +124,6 @@ describe('fixText with OpenAI', () => {
   it.each([
     ['non-object body', 'oops'],
     ['missing output', { status: 'completed' }],
-    ['invalid arguments JSON', functionCall('submit_correction', '{not json')],
-    [
-      'non-string arguments',
-      {
-        status: 'completed',
-        output: [{ type: 'function_call', name: 'submit_correction', arguments: 1 }],
-      },
-    ],
     ['unrelated function', functionCall('other', {})],
     ['incomplete for another reason', { status: 'incomplete', output: ['junk'] }],
   ])('rejects %s', async (_label, body) => {
@@ -140,12 +132,59 @@ describe('fixText with OpenAI', () => {
     await expect(result).rejects.toThrow('Unexpected response from OpenAI.');
   });
 
+  const nonStringArguments = {
+    status: 'completed',
+    output: [{ type: 'function_call', name: 'submit_correction', arguments: 1 }],
+  };
+
+  it.each([
+    ['invalid arguments JSON', functionCall('submit_correction', '{not json')],
+    ['non-string arguments', nonStringArguments],
+  ])('retries %s once, then rejects instead of calling the text correct', async (_label, body) => {
+    const fetchMock = fetchReturning(body, body);
+    await expect(fix('a', fetchMock)).rejects.toThrow('Unexpected response from OpenAI.');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses the retry after garbled arguments', async () => {
+    const fetchMock = fetchReturning(
+      functionCall('submit_correction', '{not json'),
+      functionCall('confirm_correct', {}),
+    );
+    expect(await fix('Gut.', fetchMock)).toEqual({ fixed: 'Gut.', segments: [] });
+  });
+
   it('never sends an Anthropic key to OpenAI', async () => {
     const fetchMock = fetchReturning();
     await expect(fixText('a', 'sk-ant-api03-x', OPENAI, fetchMock)).rejects.toThrow(
       'This is an Anthropic API key. Enter your OpenAI key in the extension options.',
     );
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['sk-proj-abc', 'sk-svcacct-abc', 'sk-abc'])(
+    'never sends the OpenAI key %s to Anthropic',
+    async (key) => {
+      const fetchMock = fetchReturning();
+      await expect(fixText('a', key, DEFAULT_SETTINGS, fetchMock)).rejects.toThrow(
+        'This is an OpenAI API key. Enter your Anthropic key in the extension options.',
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('explains a 429 for an account without credit', async () => {
+    const body = { error: { code: 'insufficient_quota', message: 'quota' } };
+    await expect(fix('a', fetchReturning(jsonResponse(body, 429)))).rejects.toThrow(
+      'No OpenAI credit left. Check billing for your API key.',
+    );
+  });
+
+  it.each([
+    ['another 429 code', jsonResponse({ error: { code: 'rate_limit_exceeded' } }, 429)],
+    ['a 429 without JSON', new Response('slow down', { status: 429 })],
+  ])('keeps the rate-limit message for %s', async (_label, response) => {
+    await expect(fix('a', fetchReturning(response))).rejects.toThrow(/Rate limited/);
   });
 
   it('names OpenAI in server errors', async () => {
