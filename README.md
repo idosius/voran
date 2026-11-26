@@ -124,3 +124,11 @@ tsconfig.node.json   strict config for build and tool configs
 - Selections inside shadow roots of the host page cannot be replaced in place; the corrected text is copied.
 - Read-only and disabled fields are never modified; the corrected text is copied.
 - A correction times out after 60 seconds, including one automatic retry when the model replies without calling a tool.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Contributions require agreeing to the contributor license grant described there.
+
+## License
+
+[PolyForm Noncommercial License 1.0.0](LICENSE.md). Free for personal, research, hobby and other noncommercial use, and for noncommercial organizations. For commercial use, contact the author for a separate license.

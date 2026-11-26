@@ -3,3 +3,4 @@ coverage
 node_modules
 .idea
 package-lock.json
+LICENSE.md
