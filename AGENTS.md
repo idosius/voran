@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Voran is a Chrome extension (Manifest V3, TypeScript, no framework). The user selects text, right-clicks **Voran**, and Claude Haiku (`claude-haiku-5-5`) returns a corrected version. A dialog shows an inline word diff, and applying it (button or Enter) replaces the selection; Cancel, Esc or a click outside discards it. See `README.md` for the usage table, manual test checklist and known limitations.
+Voran is a Chrome extension (Manifest V3, TypeScript, no framework). The user selects text, right-clicks **Fix text with Voran**, and Claude Haiku (`claude-haiku-5-5`) returns a corrected version. A dialog shows an inline word diff, and applying it (button or Enter) replaces the selection; Cancel, Esc or a click outside discards it. See `README.md` for the usage table, manual test checklist and known limitations.
 
 ## Commands
 

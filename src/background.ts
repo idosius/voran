@@ -10,7 +10,11 @@ import { normalizeSettings } from './languages';
 import { type FixResponse, type StartMessage, isBackgroundRequest } from './messages';
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({ id: MENU_ID, title: 'Voran', contexts: ['selection'] });
+  chrome.contextMenus.create({
+    id: MENU_ID,
+    title: 'Fix text with Voran',
+    contexts: ['selection'],
+  });
 });
 
 async function sendStart(tabId: number, frameId: number, message: StartMessage): Promise<void> {
