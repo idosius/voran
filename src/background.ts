@@ -1,3 +1,4 @@
+import { createFixCache } from './cache';
 import { ClaudeError, fixText } from './claude';
 import {
   MENU_ID,
@@ -47,6 +48,10 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   void startCorrection(tab.id, info.frameId ?? 0, info.selectionText ?? '');
 });
 
+// Session storage outlives the service worker, which Chrome stops when idle, and is cleared when the
+// browser closes.
+const fixCache = createFixCache(chrome.storage.session);
+
 async function handleFix(text: string): Promise<FixResponse> {
   const stored = await chrome.storage.local.get([
     STORAGE_KEY_API_KEY,
@@ -58,7 +63,9 @@ async function handleFix(text: string): Promise<FixResponse> {
     return { ok: false, error: 'No API key set.', noKey: true };
   }
   try {
-    return { ok: true, result: await fixText(text, apiKey, normalizeSettings(stored)) };
+    const settings = normalizeSettings(stored);
+    const result = await fixCache.run(text, settings, () => fixText(text, apiKey, settings));
+    return { ok: true, result };
   } catch (error) {
     const message = error instanceof ClaudeError ? error.message : 'Unexpected error.';
     return { ok: false, error: message, noKey: false };

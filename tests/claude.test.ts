@@ -17,6 +17,16 @@ function toolUse(input: unknown): unknown {
   };
 }
 
+interface SystemBlock {
+  type: string;
+  text: string;
+  cache_control?: unknown;
+}
+
+function systemText(blocks: readonly SystemBlock[]): string {
+  return blocks.map((block) => block.text).join('');
+}
+
 function fix(text: string, key: string, fetchImpl: typeof fetch): ReturnType<typeof fixText> {
   return fixText(text, key, DEFAULT_SETTINGS, fetchImpl);
 }
@@ -209,6 +219,34 @@ describe('fixText request limits', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('rejects input without letters without calling the API', async () => {
+    const fetchMock = vi.fn();
+    await expect(fix(' 12,345.67 € — 50% ', 'k', fetchMock)).rejects.toThrow(/Nothing to correct/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('checks a single letter in any script', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(okBody)));
+    await fix('42 ש', 'k', fetchMock);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('marks the tools and system prompt as a cacheable prefix', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(okBody)));
+    await fix('a', 'k', fetchMock);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as { system: SystemBlock[]; messages: unknown };
+    expect(body.system).toEqual([
+      {
+        type: 'text',
+        text: buildSystemPrompt(DEFAULT_SETTINGS),
+        cache_control: { type: 'ephemeral' },
+      },
+    ]);
+    // The user text stays after the breakpoint, so it never takes part in the cached prefix.
+    expect(body.messages).toEqual([{ role: 'user', content: 'a' }]);
+  });
+
   it('sizes max_tokens to two tokens per input character plus room for thinking', async () => {
     const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(okBody)));
     await fix('x'.repeat(7000), 'k', fetchMock);
@@ -258,11 +296,11 @@ describe('fixText confirm_correct reply', () => {
     const body = JSON.parse(init.body as string) as {
       tools: { name: string }[];
       tool_choice: unknown;
-      system: string;
+      system: SystemBlock[];
     };
     expect(body.tools.map((tool) => tool.name)).toEqual(['submit_correction', 'confirm_correct']);
     expect(body.tool_choice).toEqual({ type: 'auto' });
-    expect(body.system).toContain('confirm_correct');
+    expect(systemText(body.system)).toContain('confirm_correct');
   });
 
   it('treats two plain text replies as already correct', async () => {
@@ -335,7 +373,7 @@ describe('fixText confirm_correct reply', () => {
 });
 
 function sentBody(fetchMock: { mock: { calls: unknown[][] } }): {
-  system: string;
+  system: SystemBlock[];
   tools: { name: string; input_schema: { properties: object; required?: string[] } }[];
 } {
   const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
@@ -417,8 +455,8 @@ describe('buildSystemPrompt', () => {
     );
     await fixText('a', 'k', { language: 'French', reasonLanguage: 'German' }, fetchMock);
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    const body = JSON.parse(init.body as string) as { system: string };
-    expect(body.system).toContain('French text');
-    expect(body.system).toContain('written in German');
+    const body = JSON.parse(init.body as string) as { system: SystemBlock[] };
+    expect(systemText(body.system)).toContain('French text');
+    expect(systemText(body.system)).toContain('written in German');
   });
 });
