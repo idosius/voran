@@ -1,7 +1,7 @@
 {
   "name": "voran",
   "version": "1.0.0",
-  "description": "Chrome extension that corrects selected text in any language with Claude Haiku.",
+  "description": "Chrome and Firefox extension that corrects selected text in any language with Claude Haiku.",
   "license": "PolyForm-Noncommercial-1.0.0",
   "private": true,
   "type": "module",
@@ -11,6 +11,8 @@
   "scripts": {
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
+    "lint:firefox": "web-ext lint --source-dir dist/firefox",
+    "start:firefox": "web-ext run --source-dir dist/firefox --url about:debugging#/runtime/this-firefox",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",
@@ -46,6 +48,7 @@
     "prettier": "^3.10.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.74.0",
-    "vitest": "^5.1.1"
+    "vitest": "^5.1.1",
+    "web-ext": "^10.8.0"
   }
 }
