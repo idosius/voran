@@ -39,7 +39,7 @@ Goal: user picks provider, model and key in options. Anthropic stays default.
 1. Provider interface in new `src/providers/`: `request(text, settings, key, signal) -> RawSegments`. Shared pieces stay provider-neutral: `buildSystemPrompt` and `fromSegments` (move out of `claude.ts` into `correction.ts`), error mapping (`ClaudeError` -> `ProviderError`), 30 s timeout, retry.
 2. Providers:
    - `anthropic` (existing; tool use `submit_correction`/`confirm_correct`).
-   - `openai` (function calling or JSON-schema structured output with the same segment schema).
+   - `openai` — done: `src/openai.ts` (Responses API function calling, fixed model `gpt-6-luna`, one shared key field, plain `host_permissions`). Remaining for this phase: per-provider keys and model field, optional host permissions.
    - `gemini` (function calling / `responseSchema`).
    - `openai-compatible` with custom base URL: covers OpenRouter, Groq, Together, Mistral, DeepSeek, local Ollama / LM Studio (no key, no data leaves the machine).
    - Each adapter converts its response into the same `segments` shape, then `isSegmentList` + `fromSegments` validate. No free-text parsing anywhere.

@@ -61,10 +61,18 @@ describe('createFixCache', () => {
 
   it('keys results by settings', async () => {
     const cache = createFixCache(memoryStore());
-    const other: Settings = { language: 'German', reasonLanguage: 'German' };
+    const other: Settings = { language: 'German', reasonLanguage: 'German', provider: 'anthropic' };
     const compute = vi.fn(() => Promise.resolve(corrected));
     await cache.run('Die Kinder spielt.', DEFAULT_SETTINGS, compute);
     await cache.run('Die Kinder spielt.', other, compute);
+    expect(compute).toHaveBeenCalledTimes(2);
+  });
+
+  it('keys results by provider', async () => {
+    const cache = createFixCache(memoryStore());
+    const compute = vi.fn(() => Promise.resolve(corrected));
+    await cache.run('Die Kinder spielt.', DEFAULT_SETTINGS, compute);
+    await cache.run('Die Kinder spielt.', { ...DEFAULT_SETTINGS, provider: 'openai' }, compute);
     expect(compute).toHaveBeenCalledTimes(2);
   });
 

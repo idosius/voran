@@ -2,10 +2,10 @@
   "manifest_version": 3,
   "name": "Voran",
   "version": "1.0.0",
-  "description": "Correct selected text in any language with Claude Haiku.",
+  "description": "Correct selected text in any language with Claude or OpenAI.",
   "minimum_chrome_version": "120",
   "permissions": ["contextMenus", "storage", "scripting", "activeTab", "clipboardWrite"],
-  "host_permissions": ["https://api.anthropic.com/*"],
+  "host_permissions": ["https://api.anthropic.com/*", "https://api.openai.com/*"],
   "background": { "service_worker": "background.js" },
   "content_scripts": [
     {

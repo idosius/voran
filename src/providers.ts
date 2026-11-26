@@ -1,0 +1,50 @@
+export type ProviderId = 'anthropic' | 'openai';
+
+export interface ProviderInfo {
+  readonly id: ProviderId;
+  // Company name, shown in the options page.
+  readonly company: string;
+  // Name used in error messages, e.g. "Claude is temporarily unavailable."
+  readonly product: string;
+  readonly host: string;
+  readonly keyUrl: string;
+  // Prefix every key of this provider starts with, if it has a distinctive one.
+  readonly keyPrefix?: string;
+}
+
+export const PROVIDER_INFO: Readonly<Record<ProviderId, ProviderInfo>> = {
+  anthropic: {
+    id: 'anthropic',
+    company: 'Anthropic',
+    product: 'Claude',
+    host: 'api.anthropic.com',
+    keyUrl: 'https://console.anthropic.com/settings/keys',
+    keyPrefix: 'sk-ant-',
+  },
+  openai: {
+    id: 'openai',
+    company: 'OpenAI',
+    product: 'OpenAI',
+    host: 'api.openai.com',
+    keyUrl: 'https://platform.openai.com/api-keys',
+  },
+};
+
+export const PROVIDERS: readonly ProviderInfo[] = Object.values(PROVIDER_INFO);
+
+export const DEFAULT_PROVIDER: ProviderId = 'anthropic';
+
+export function isProviderId(value: unknown): value is ProviderId {
+  return PROVIDERS.some((provider) => provider.id === value);
+}
+
+/**
+The other provider an API key evidently belongs to, judged by its prefix, so a key is never sent to
+the wrong vendor after switching providers. Undefined when the key may belong to `provider`.
+*/
+export function keyOwner(provider: ProviderId, apiKey: string): ProviderInfo | undefined {
+  return PROVIDERS.find(
+    (other) =>
+      other.id !== provider && other.keyPrefix !== undefined && apiKey.startsWith(other.keyPrefix),
+  );
+}

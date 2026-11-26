@@ -1,12 +1,12 @@
 # Voran
 
-Chrome extension (Manifest V3). Select text in any language, right-click, choose **Fix text with Voran**. Claude Haiku returns a corrected version. A dialog shows an inline word diff (removed words struck through, added words highlighted). Hover (or Tab to) a correction to see the reason in a tooltip. When you apply the correction, the corrected text replaces the selection; cancelling leaves it unchanged.
+Chrome extension (Manifest V3). Select text in any language, right-click, choose **Fix text with Voran**. Claude Haiku (or, if you choose, OpenAI's GPT-6 Luna) returns a corrected version. A dialog shows an inline word diff (removed words struck through, added words highlighted). Hover (or Tab to) a correction to see the reason in a tooltip. When you apply the correction, the corrected text replaces the selection; cancelling leaves it unchanged.
 
 ## Requirements
 
 - Node.js 22 or newer
 - Chrome 120 or newer
-- An Anthropic API key
+- An Anthropic or OpenAI API key
 
 ## Install
 
@@ -17,7 +17,7 @@ npm run build
 
 1. Open `chrome://extensions` and enable Developer mode.
 2. Click **Load unpacked** and select the `dist/` directory.
-3. Open the extension's options page and enter your API key. There you can also set the language of the text you correct (default: auto-detect) and the language of the explanation tooltips (default: English). Changes save automatically.
+3. Open the extension's options page and pick the AI provider (Anthropic by default, or OpenAI) and enter that provider's API key. There you can also set the language of the text you correct (default: auto-detect) and the language of the explanation tooltips (default: English). Changes save automatically.
 
 ## Usage
 
@@ -31,26 +31,29 @@ Replacement depends on where the text was selected:
 | Read-only page text                      | Corrected text is copied to the clipboard                                                                                                                                                                                       |
 | Text changed while the dialog was open   | Corrected text is copied to the clipboard                                                                                                                                                                                       |
 
-If nothing needs correcting, no dialog opens. A green checkmark appears briefly over the text and the text is left alone. While waiting for Claude, a small "Checking…" pill shows over the selected text.
+If nothing needs correcting, no dialog opens. A green checkmark appears briefly over the text and the text is left alone. While waiting for the model, a small "Checking…" pill shows over the selected text.
 
 ## How it works
 
 ```
 right-click -> background (context menu) -> content script (captures selection, shows dialog)
-content script -> background (voran:fix) -> api.anthropic.com -> background -> content script
+content script -> background (voran:fix) -> api.anthropic.com or api.openai.com -> background -> content script
 dialog applied -> content script replaces text
 ```
 
-- `src/background.ts`: context menu, API key lookup, Claude call. The key never reaches page context.
+- `src/background.ts`: context menu, settings and API key lookup, correction call. The key never reaches page context.
 - `src/content.ts`: captures the selection on `contextmenu`, drives the dialog, applies the replacement.
-- `src/claude.ts`: Messages API request (model `claude-haiku-5-5`). The model must call one of two tools: `submit_correction` (ordered `segments`: unchanged `text` or `original`/`fixed`/`reason`, validated; `fixed` is derived) or `confirm_correct` (text already correct). No free text is parsed.
+- `src/correction.ts`: provider-neutral prompt, tools, retry, timeout and segment alignment. The model must call one of two tools: `submit_correction` (ordered `segments`: unchanged `text` or `original`/`fixed`/`reason`, validated; `fixed` is derived) or `confirm_correct` (text already correct). No free text is parsed.
+- `src/claude.ts`: Anthropic Messages API adapter (model `claude-haiku-5-5`).
+- `src/openai.ts`: OpenAI Responses API adapter (model `gpt-6-luna`).
+- `src/providers.ts`: provider names, hosts and key links.
 - `src/diff.ts`: inline word-level diff via the `diff` package.
 - `src/modal.ts`: dialog and toast in a shadow root. All text is inserted with `textContent`; `innerHTML` is banned by lint.
 - `src/replace.ts`: selection capture and replacement for fields, contenteditable and read-only text.
 - `src/languages.ts`: supported languages (English and native names), settings validation.
-- `src/options.ts`, `src/options.html`: API key and language settings (searchable language lists).
+- `src/options.ts`, `src/options.html`: provider, API key and language settings (searchable language lists).
 
-The selected text is sent to Anthropic. The API key is sent only to `api.anthropic.com`.
+The selected text is sent to the chosen provider (Anthropic or OpenAI; OpenAI requests use `store: false`). The API key is sent only to that provider's API host. There is one key field: switching provider in the options clears it, and a key that clearly belongs to Anthropic (`sk-ant-`) is never sent to OpenAI.
 
 ## Development
 
@@ -94,6 +97,8 @@ Create an HTML file with a `<textarea>`, an `<input>`, a `<div contenteditable>`
 - [ ] `<p>`: corrected text is on the clipboard and a toast appears.
 - [ ] Already-correct text: no dialog, green checkmark over the text, nothing changes.
 - [ ] Wrong API key: error shown, nothing changes.
+- [ ] OpenAI: select OpenAI in the options (the key field clears), enter an OpenAI key, correct text in a textarea and in contenteditable. A server error names OpenAI. Switching back to Anthropic needs the Anthropic key again.
+- [ ] OpenAI selected with an Anthropic key (`sk-ant-…`): error, no request sent.
 - [ ] No API key: error with an **Open options** button.
 - [ ] Selection over 8000 characters: error, no request sent.
 - [ ] Selection inside an iframe works.

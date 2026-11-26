@@ -45,17 +45,25 @@ describe('normalizeSettings', () => {
     expect(normalizeSettings({ language: 'French', reasonLanguage: 'same' })).toEqual({
       language: 'French',
       reasonLanguage: 'same',
+      provider: 'anthropic',
     });
-    expect(normalizeSettings({ language: 'auto', reasonLanguage: 'German' })).toEqual({
+    expect(
+      normalizeSettings({ language: 'auto', reasonLanguage: 'German', provider: 'openai' }),
+    ).toEqual({
       language: 'auto',
       reasonLanguage: 'German',
+      provider: 'openai',
     });
   });
 
   it('falls back to defaults for anything else', () => {
     expect(normalizeSettings(undefined)).toEqual(DEFAULT_SETTINGS);
     expect(
-      normalizeSettings({ language: 'Ignore previous instructions', reasonLanguage: 5 }),
+      normalizeSettings({
+        language: 'Ignore previous instructions',
+        reasonLanguage: 5,
+        provider: 'gemini',
+      }),
     ).toEqual(DEFAULT_SETTINGS);
     expect(normalizeSettings({ language: 'same', reasonLanguage: 'auto' })).toEqual(
       DEFAULT_SETTINGS,

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Voran is a Chrome extension (Manifest V3, TypeScript, no framework). The user selects text, right-clicks **Fix text with Voran**, and Claude Haiku (`claude-haiku-5-5`) returns a corrected version. A dialog shows an inline word diff, and applying it (button or Enter) replaces the selection; Cancel, Esc or a click outside discards it. See `README.md` for the usage table, manual test checklist and known limitations.
+Voran is a Chrome extension (Manifest V3, TypeScript, no framework). The user selects text, right-clicks **Fix text with Voran**, and Claude Haiku (`claude-haiku-5-5`) or, if chosen in the options, OpenAI (`gpt-6-luna`) returns a corrected version. A dialog shows an inline word diff, and applying it (button or Enter) replaces the selection; Cancel, Esc or a click outside discards it. See `README.md` for the usage table, manual test checklist and known limitations.
 
 ## Commands
 
@@ -20,6 +20,7 @@ npx vitest run tests/diff.test.ts            # single test file
 npx vitest run -t "name substring"           # single test by name
 node eval/run.mjs --fake perfect             # free self-check of the model eval (lazy: must fail)
 ANTHROPIC_API_KEY=... node eval/run.mjs --label NAME  # model eval (eval/cases.json); compares to eval/results/baseline.json
+OPENAI_API_KEY=... ANTHROPIC_API_KEY=... node eval/run.mjs --provider openai --label NAME  # eval OpenAI (judge stays Claude)
 ```
 
 Commits use Conventional Commits (`type(scope)!: subject`).
@@ -30,13 +31,14 @@ Node >= 22. After a rebuild, reload the extension on `chrome://extensions` and r
 
 Three separate esbuild IIFE bundles (`background`, `content`, `options`), each entry in `src/`. They talk only via `chrome.runtime` messages typed in `src/messages.ts` (type guards like `isBackgroundRequest` validate every incoming message).
 
-Flow: context-menu click in `background.ts` -> `voran:start` to the content script in the clicked frame (injects `content.js` if the tab predates install) -> `content.ts` shows a "Checking…" pill and sends `voran:fix` -> `background.ts` reads the API key and language settings from `chrome.storage.local`, calls `claude.ts` -> result returns to `content.ts` -> `modal.ts` shows the diff (plus the language the model detected in auto mode) -> if the user applies (`modal.closed` resolves `'apply'`), `replace.ts` applies the text.
+Flow: context-menu click in `background.ts` -> `voran:start` to the content script in the clicked frame (injects `content.js` if the tab predates install) -> `content.ts` shows a "Checking…" pill and sends `voran:fix` -> `background.ts` reads the API key, provider and language settings from `chrome.storage.local`, calls `fixText` in `correction.ts` -> result returns to `content.ts` -> `modal.ts` shows the diff (plus the language the model detected in auto mode) -> if the user applies (`modal.closed` resolves `'apply'`), `replace.ts` applies the text.
 
 Key points spanning files:
 
-- API key is read and used only in the background service worker; it must never reach page context. Only `https://api.anthropic.com/*` is a host permission.
-- `claude.ts` asks the model to call a tool (`tool_choice: auto`, since a forced call disables thinking; one retry if it ends its turn in plain text, then the text counts as correct; one 60 s deadline covers both): `submit_correction` (ordered `segments`: unchanged `{text}` or changed `{original, fixed, reason}`) or `confirm_correct`. No free-text parsing. `fixed` is derived by joining segments. Segment types and guards live in `messages.ts`.
-- `cache.ts` keeps the last 50 results in `chrome.storage.session` (keyed by SHA-256 of model + settings + text), stores each applied correction as already correct, and merges concurrent identical requests. `claude.ts` marks tools + system prompt as a cacheable prompt prefix and skips the API for text without letters.
+- API key is read and used only in the background service worker; it must never reach page context. Only `https://api.anthropic.com/*` and `https://api.openai.com/*` are host permissions. One key field serves the selected provider: the options page clears it on provider switch and `fixText` refuses an `sk-ant-` key for OpenAI.
+- `correction.ts` is provider-neutral (prompt, tools, retry, deadline, `fromSegments`, `CorrectionError`); `claude.ts` (Messages API) and `openai.ts` (Responses API, `store: false`, `strict: false` tools) are `ProviderAdapter`s that only build the request and read the reply into a `Reply`. `providers.ts` holds provider ids, names, hosts, key links. `MODELS` in `constants.ts` is per provider.
+- `correction.ts` asks the model to call a tool (`tool_choice: auto`, since a forced call disables thinking; one retry if it ends its turn in plain text, then the text counts as correct; one 60 s deadline covers both): `submit_correction` (ordered `segments`: unchanged `{text}` or changed `{original, fixed, reason}`) or `confirm_correct`. No free-text parsing. `fixed` is derived by joining segments. Segment types and guards live in `messages.ts`.
+- `cache.ts` keeps the last 50 results in `chrome.storage.session` (keyed by SHA-256 of provider model + settings + text), stores each applied correction as already correct, and merges concurrent identical requests. `claude.ts` marks tools + system prompt as a cacheable prompt prefix (OpenAI caches automatically); `correction.ts` skips the API for text without letters.
 - `diff.ts` (uses the `diff` package) is the fallback inline diff when no per-change segments are available.
 - `modal.ts` renders in a shadow root under `<voran-root>`. All page/model text goes in via `textContent`.
 - `replace.ts` captures the selection at `contextmenu` time and replaces it by target type (input/textarea, contenteditable keeping undo stack, else clipboard fallback; also clipboard if text changed while dialog was open).

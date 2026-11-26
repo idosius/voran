@@ -2,6 +2,7 @@ import { attachCombobox } from './combobox';
 import {
   STORAGE_KEY_API_KEY,
   STORAGE_KEY_LANGUAGE,
+  STORAGE_KEY_PROVIDER,
   STORAGE_KEY_REASON_LANGUAGE,
 } from './constants';
 import {
@@ -15,6 +16,13 @@ import {
   languageLabel,
   normalizeSettings,
 } from './languages';
+import {
+  DEFAULT_PROVIDER,
+  isProviderId,
+  PROVIDER_INFO,
+  PROVIDERS,
+  type ProviderId,
+} from './providers';
 
 function requireElement<T extends HTMLElement>(id: string, type: new () => T): T {
   const element = document.querySelector(`#${id}`);
@@ -29,7 +37,29 @@ const input = requireElement('apiKey', HTMLInputElement);
 const languageInput = requireElement('language', HTMLInputElement);
 const reasonLanguageInput = requireElement('reasonLanguage', HTMLInputElement);
 const status = requireElement('status', HTMLParagraphElement);
-const fields = [input, languageInput, reasonLanguageInput];
+const providerSelect = requireElement('provider', HTMLSelectElement);
+const providerHint = requireElement('providerHint', HTMLParagraphElement);
+const keyLabel = requireElement('apiKeyLabel', HTMLLabelElement);
+const keyHint = requireElement('keyHint', HTMLSpanElement);
+const keyLink = requireElement('keyLink', HTMLAnchorElement);
+const fields = [input, languageInput, reasonLanguageInput, providerSelect];
+
+for (const provider of PROVIDERS) {
+  const option = document.createElement('option');
+  option.value = provider.id;
+  option.textContent = provider.company;
+  providerSelect.append(option);
+}
+
+function showProvider(id: ProviderId): void {
+  const info = PROVIDER_INFO[id];
+  providerSelect.value = id;
+  providerHint.textContent = `Selected text is sent to ${info.company} for correction.`;
+  keyLabel.textContent = `${info.company} API key`;
+  keyHint.textContent = `The key is stored locally in this browser profile and sent only to ${info.host}.`;
+  keyLink.textContent = `Get an ${info.company} API key`;
+  keyLink.href = info.keyUrl;
+}
 
 const labels = LANGUAGES.map((language) => languageLabel(language));
 attachCombobox(languageInput, [AUTO_LABEL, ...labels]);
@@ -49,6 +79,7 @@ function showSettings(language: string, reasonLanguage: string): void {
 }
 
 showSettings(DEFAULT_SETTINGS.language, DEFAULT_SETTINGS.reasonLanguage);
+showProvider(DEFAULT_SETTINGS.provider);
 
 async function load(): Promise<void> {
   try {
@@ -56,6 +87,7 @@ async function load(): Promise<void> {
       STORAGE_KEY_API_KEY,
       STORAGE_KEY_LANGUAGE,
       STORAGE_KEY_REASON_LANGUAGE,
+      STORAGE_KEY_PROVIDER,
     ]);
     const apiKey = stored[STORAGE_KEY_API_KEY];
     if (typeof apiKey === 'string') {
@@ -63,6 +95,7 @@ async function load(): Promise<void> {
     }
     const settings = normalizeSettings(stored);
     showSettings(settings.language, settings.reasonLanguage);
+    showProvider(settings.provider);
     for (const field of fields) {
       field.disabled = false;
     }
@@ -96,16 +129,19 @@ async function save(apiKey: string): Promise<void> {
     status.textContent = 'Pick a language from the list.';
     return;
   }
+  const provider = isProviderId(providerSelect.value) ? providerSelect.value : DEFAULT_PROVIDER;
   try {
     await chrome.storage.local.set({
       [STORAGE_KEY_LANGUAGE]: language,
       [STORAGE_KEY_REASON_LANGUAGE]: reasonLanguage,
+      [STORAGE_KEY_PROVIDER]: provider,
       ...(apiKey !== '' && { [STORAGE_KEY_API_KEY]: apiKey }),
     });
     if (apiKey === '') {
       await chrome.storage.local.remove(STORAGE_KEY_API_KEY);
     }
     showSettings(language, reasonLanguage);
+    showProvider(provider);
     status.textContent = apiKey === '' ? 'Saved. Key removed.' : 'Saved.';
   } catch {
     status.textContent = 'Could not save the settings.';
@@ -126,6 +162,10 @@ function queueSave(): void {
 
 form.addEventListener('submit', (event) => {
   event.preventDefault();
+});
+// The one stored key belongs to the previous provider; never send it to the new one.
+providerSelect.addEventListener('change', () => {
+  input.value = '';
 });
 for (const field of fields) {
   field.addEventListener('change', queueSave);

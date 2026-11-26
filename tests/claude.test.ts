@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildSystemPrompt, ClaudeError, fixText } from '../src/claude';
-import { MAX_INPUT_CHARS, MODEL } from '../src/constants';
-import { DEFAULT_SETTINGS } from '../src/languages';
+import { buildSystemPrompt, CorrectionError, fixText } from '../src/correction';
+import { MAX_INPUT_CHARS, MODELS } from '../src/constants';
+import { DEFAULT_SETTINGS, type Settings } from '../src/languages';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return Response.json(body, { status });
@@ -60,7 +60,7 @@ describe('fixText', () => {
       'anthropic-dangerous-direct-browser-access': 'true',
     });
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
-    expect(body['model']).toBe(MODEL);
+    expect(body['model']).toBe(MODELS.anthropic);
     expect(body['tool_choice']).toEqual({ type: 'auto' });
     expect(body['output_config']).toEqual({ effort: 'low' });
     expect(body['messages']).toEqual([{ role: 'user', content: 'Die Kinder spielt.' }]);
@@ -205,8 +205,8 @@ describe('fixText', () => {
     } catch (error_) {
       error = error_;
     }
-    expect(error).toBeInstanceOf(ClaudeError);
-    expect((error as ClaudeError).message).toMatch(/Unexpected response/);
+    expect(error).toBeInstanceOf(CorrectionError);
+    expect((error as CorrectionError).message).toMatch(/Unexpected response/);
   });
 });
 
@@ -381,7 +381,7 @@ function sentBody(fetchMock: { mock: { calls: unknown[][] } }): {
 }
 
 describe('detected language', () => {
-  const AUTO = { language: 'auto', reasonLanguage: 'English' };
+  const AUTO: Settings = { language: 'auto', reasonLanguage: 'English', provider: 'anthropic' };
   const SEGMENTS = [{ text: 'Ich bin müde.' }];
 
   async function detect(language: unknown, settings = AUTO): ReturnType<typeof fixText> {
@@ -403,7 +403,12 @@ describe('detected language', () => {
 
   it('does not ask for it with a fixed language', async () => {
     const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(confirmReply())));
-    await fixText('a', 'k', { language: 'German', reasonLanguage: 'English' }, fetchMock);
+    await fixText(
+      'a',
+      'k',
+      { language: 'German', reasonLanguage: 'English', provider: 'anthropic' },
+      fetchMock,
+    );
     const schema = sentBody(fetchMock).tools[0]?.input_schema;
     expect(Object.keys(schema?.properties ?? {})).toEqual(['segments']);
     expect(schema?.required).toEqual(['segments']);
@@ -425,7 +430,11 @@ describe('detected language', () => {
   });
 
   it('ignores a language reported in fixed-language mode', async () => {
-    const result = await detect('German', { language: 'German', reasonLanguage: 'English' });
+    const result = await detect('German', {
+      language: 'German',
+      reasonLanguage: 'English',
+      provider: 'anthropic',
+    });
     expect(result).not.toHaveProperty('language');
   });
 
@@ -437,13 +446,21 @@ describe('detected language', () => {
 
 describe('buildSystemPrompt', () => {
   it('asks the model to detect the language in auto mode', () => {
-    const prompt = buildSystemPrompt({ language: 'auto', reasonLanguage: 'English' });
+    const prompt = buildSystemPrompt({
+      language: 'auto',
+      reasonLanguage: 'English',
+      provider: 'anthropic',
+    });
     expect(prompt).toContain('Detect its language');
     expect(prompt).toContain('written in English');
   });
 
   it('names a fixed language and a same-language reason', () => {
-    const prompt = buildSystemPrompt({ language: 'Spanish', reasonLanguage: 'same' });
+    const prompt = buildSystemPrompt({
+      language: 'Spanish',
+      reasonLanguage: 'same',
+      provider: 'anthropic',
+    });
     expect(prompt).toContain('Spanish text');
     expect(prompt).not.toContain('Detect its language');
     expect(prompt).toContain('the same language as the text');
@@ -453,7 +470,12 @@ describe('buildSystemPrompt', () => {
     const fetchMock = vi.fn(() =>
       Promise.resolve(jsonResponse(toolUse({ segments: [{ text: 'a' }] }))),
     );
-    await fixText('a', 'k', { language: 'French', reasonLanguage: 'German' }, fetchMock);
+    await fixText(
+      'a',
+      'k',
+      { language: 'French', reasonLanguage: 'German', provider: 'anthropic' },
+      fetchMock,
+    );
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const body = JSON.parse(init.body as string) as { system: SystemBlock[] };
     expect(systemText(body.system)).toContain('French text');

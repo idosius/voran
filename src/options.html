@@ -64,7 +64,8 @@
       .combo-list li.active {
         background: color-mix(in srgb, CanvasText 14%, transparent);
       }
-      input {
+      input,
+      select {
         box-sizing: border-box;
         width: 100%;
         padding: 6px 8px;
@@ -90,20 +91,26 @@
   <body>
     <h1>Voran</h1>
     <form id="form">
+      <label for="provider">AI provider</label>
+      <select id="provider"></select>
+      <p class="hint" id="providerHint">Selected text is sent to Anthropic for correction.</p>
       <label for="language">Language of the text you correct</label>
       <div class="combo">
         <input id="language" autocomplete="off" spellcheck="false" />
       </div>
-      <p class="hint">Selected text is sent to Anthropic for correction.</p>
       <label for="reasonLanguage">Language of the explanation tooltips</label>
       <div class="combo">
         <input id="reasonLanguage" autocomplete="off" spellcheck="false" />
       </div>
-      <label for="apiKey">Anthropic API key</label>
+      <label for="apiKey" id="apiKeyLabel">Anthropic API key</label>
       <input id="apiKey" type="password" autocomplete="off" spellcheck="false" />
       <p class="hint">
-        The key is stored locally in this browser profile and sent only to api.anthropic.com.
+        <span id="keyHint"
+          >The key is stored locally in this browser profile and sent only to
+          api.anthropic.com.</span
+        >
         <a
+          id="keyLink"
           href="https://console.anthropic.com/settings/keys"
           target="_blank"
           rel="noopener noreferrer"
