@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/dom';
+import { fireEvent, screen } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { attachCombobox } from '../src/combobox';
@@ -32,6 +32,13 @@ beforeEach(() => {
 });
 
 describe('attachCombobox', () => {
+  it('cancels mousedown on the arrow and the options so the input keeps focus (Firefox)', async () => {
+    await userEvent.click(arrow());
+    // fireEvent returns false when the default action (moving focus) was prevented.
+    expect(fireEvent.mouseDown(arrow())).toBe(false);
+    expect(fireEvent.mouseDown(screen.getByRole('option', { name: 'English' }))).toBe(false);
+  });
+
   it('always renders the arrow button and starts closed', () => {
     expect(arrow()).toBeInTheDocument();
     expect(screen.getByRole('listbox', { hidden: true })).not.toBeVisible();

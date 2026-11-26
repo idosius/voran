@@ -104,7 +104,9 @@ export function attachCombobox(
     setActive(active === -1 ? (step > 0 ? 0 : count - 1) : (active + step + count) % count);
   };
 
-  button.addEventListener('pointerdown', (event) => {
+  // Focus moves on mousedown. Preventing only pointerdown keeps focus in Chrome but not in Firefox,
+  // where the input would blur and close the list before the click lands.
+  button.addEventListener('mousedown', (event) => {
     // Keep focus where it is; the click below toggles the list.
     event.preventDefault();
   });
@@ -117,7 +119,7 @@ export function attachCombobox(
     }
   });
 
-  list.addEventListener('pointerdown', (event) => {
+  list.addEventListener('mousedown', (event) => {
     // Picking must not blur the input first, or the list would close before the click lands.
     event.preventDefault();
   });
