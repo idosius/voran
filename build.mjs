@@ -74,6 +74,10 @@ async function copyStatic(target) {
   const base = JSON.parse(await readFile('manifest.json', 'utf8'));
   await writeFile(`${outdir}/manifest.json`, `${JSON.stringify(target.manifest(base), null, 2)}\n`);
   await cp('src/options.html', `${outdir}/options.html`);
+  await cp('icons', `${outdir}/icons`, {
+    recursive: true,
+    filter: (path) => !path.endsWith('.svg'),
+  });
 }
 
 await rm('dist', { recursive: true, force: true });
