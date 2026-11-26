@@ -15,7 +15,7 @@ Assumption: MVP = installable by strangers, so privacy, permissions and a11y cou
 ## Phase 1 — Bugfixes
 
 1. No in-flight guard: second right-click while "Checking…" runs, or while a dialog is open, stacks pills/dialogs and overwrites `state.target` in `content.ts`. Add a `busy` flag (or cancel the previous run).
-2. Cannot reject a correction: Esc, click outside and button all apply (`modal.ts:255,267`). Add explicit **Cancel** (no change); Esc and outside click cancel; only the primary button applies. Update README table and tests.
+2. ~~Cannot reject a correction~~ (done): Esc, click outside and button all apply (`modal.ts:255,267`). Add explicit **Cancel** (no change); Esc and outside click cancel; only the primary button applies. Update README table and tests.
 3. No cancel while waiting: add Esc on the pill to abort (`AbortController` through `background` to `fixText`).
 4. No retry on 429/529/5xx in `claude.ts`: one retry with short backoff, honour `retry-after`.
 5. `input[type=password]` selections are sent to the API. Refuse with a clear message (also see Security).

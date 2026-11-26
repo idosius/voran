@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Voran is a Chrome extension (Manifest V3, TypeScript, no framework). The user selects text, right-clicks **Voran**, and Claude Haiku (`claude-haiku-5-5`) returns a corrected version. A dialog shows an inline word diff, and closing the dialog replaces the selection. See `README.md` for the usage table, manual test checklist and known limitations.
+Voran is a Chrome extension (Manifest V3, TypeScript, no framework). The user selects text, right-clicks **Voran**, and Claude Haiku (`claude-haiku-5-5`) returns a corrected version. A dialog shows an inline word diff, and applying it (button or Enter) replaces the selection; Cancel, Esc or a click outside discards it. See `README.md` for the usage table, manual test checklist and known limitations.
 
 ## Commands
 
@@ -28,7 +28,7 @@ Node >= 22. After a rebuild, reload the extension on `chrome://extensions` and r
 
 Three separate esbuild IIFE bundles (`background`, `content`, `options`), each entry in `src/`. They talk only via `chrome.runtime` messages typed in `src/messages.ts` (type guards like `isBackgroundRequest` validate every incoming message).
 
-Flow: context-menu click in `background.ts` -> `voran:start` to the content script in the clicked frame (injects `content.js` if the tab predates install) -> `content.ts` shows a "Checking…" pill and sends `voran:fix` -> `background.ts` reads the API key and language settings from `chrome.storage.local`, calls `claude.ts` -> result returns to `content.ts` -> `modal.ts` shows the diff -> on close, `replace.ts` applies the text.
+Flow: context-menu click in `background.ts` -> `voran:start` to the content script in the clicked frame (injects `content.js` if the tab predates install) -> `content.ts` shows a "Checking…" pill and sends `voran:fix` -> `background.ts` reads the API key and language settings from `chrome.storage.local`, calls `claude.ts` -> result returns to `content.ts` -> `modal.ts` shows the diff -> if the user applies (`modal.closed` resolves `'apply'`), `replace.ts` applies the text.
 
 Key points spanning files:
 

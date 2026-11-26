@@ -1,4 +1,4 @@
-import { within } from '@testing-library/dom';
+import { screen, within } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createModal, showApproval, showPending, showToast } from '../src/modal';
@@ -130,13 +130,105 @@ describe('createModal', () => {
     expect(within(shadowRoot()).getByText('No corrections needed.')).toBeInTheDocument();
   });
 
-  it('closes via the Close button', async () => {
+  it('applies via the Apply correction button', async () => {
     const user = userEvent.setup();
     const modal = createModal(document);
     modal.showResult('a', 'b', []);
     await user.click(within(shadowRoot()).getByRole('button', { name: 'Apply correction' }));
-    await modal.closed;
+    await expect(modal.closed).resolves.toBe('apply');
     expect(hosts()).toHaveLength(0);
+  });
+
+  it.each([
+    ['plain diff', []],
+    ['segments', [{ original: 'a', fixed: 'b', reason: 'r' }]],
+  ])('cancels via the Cancel button (%s)', async (_name, segments) => {
+    const user = userEvent.setup();
+    const modal = createModal(document);
+    modal.showResult('a', 'b', segments);
+    expect(
+      within(shadowRoot())
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['Cancel', 'Apply correction']);
+    await user.click(within(shadowRoot()).getByRole('button', { name: 'Cancel' }));
+    await expect(modal.closed).resolves.toBe('cancel');
+    expect(hosts()).toHaveLength(0);
+  });
+
+  describe('Enter', () => {
+    const SEGMENTS = [{ original: 'a', fixed: 'b', reason: 'r' }];
+
+    it('applies when focus is in the dialog', async () => {
+      const user = userEvent.setup();
+      const modal = createModal(document);
+      modal.showResult('a', 'b', SEGMENTS);
+      await user.click(within(shadowRoot()).getByRole('heading', { name: 'Voran' }));
+      await user.keyboard('{Enter}');
+      await expect(modal.closed).resolves.toBe('apply');
+      expect(hosts()).toHaveLength(0);
+    });
+
+    it('ignores modifiers, IME composition and a focused correction', async () => {
+      const user = userEvent.setup();
+      const modal = createModal(document);
+      modal.showResult('a', 'b', SEGMENTS);
+      await user.click(within(shadowRoot()).getByRole('heading', { name: 'Voran' }));
+      await user.keyboard('{Shift>}{Enter}{/Shift}{Control>}{Enter}{/Control}');
+      await user.keyboard('{Alt>}{Enter}{/Alt}{Meta>}{Enter}{/Meta}');
+      await user.click(within(shadowRoot()).getByRole('group', { name: 'Correction: a → b' }));
+      await user.keyboard('{Enter}');
+      expect(hosts()).toHaveLength(1);
+    });
+
+    it('ignores Enter while an IME is composing', async () => {
+      const user = userEvent.setup();
+      const modal = createModal(document);
+      modal.showResult('a', 'b', SEGMENTS);
+      const heading = within(shadowRoot()).getByRole('heading', { name: 'Voran' });
+      await user.click(heading);
+      // user-event cannot start an IME composition, so send the event the browser would.
+      heading.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }),
+      );
+      expect(hosts()).toHaveLength(1);
+    });
+
+    it('leaves Enter in the page alone', async () => {
+      const user = userEvent.setup();
+      const page = document.createElement('textarea');
+      page.setAttribute('aria-label', 'Page field');
+      document.body.append(page);
+      const modal = createModal(document);
+      modal.showResult('a', 'b', SEGMENTS);
+      await user.click(screen.getByRole('textbox', { name: 'Page field' }));
+      await user.keyboard('x{Enter}y');
+      expect(screen.getByRole('textbox', { name: 'Page field' })).toHaveValue('x\ny');
+      expect(hosts()).toHaveLength(1);
+      page.remove();
+    });
+
+    it('cancels via a focused Cancel button', async () => {
+      const user = userEvent.setup();
+      const modal = createModal(document);
+      modal.showResult('a', 'b', []);
+      // Press without release focuses the button without clicking it.
+      await user.pointer({
+        keys: '[MouseLeft>]',
+        target: within(shadowRoot()).getByRole('button', { name: 'Cancel' }),
+      });
+      await user.keyboard('{Enter}');
+      await expect(modal.closed).resolves.toBe('cancel');
+    });
+  });
+
+  it('closes without applying when nothing changed', async () => {
+    const user = userEvent.setup();
+    const modal = createModal(document);
+    modal.showResult('a', 'a', []);
+    expect(within(shadowRoot()).getAllByRole('button')).toHaveLength(1);
+    await user.click(within(shadowRoot()).getByRole('button', { name: 'Close' }));
+    await expect(modal.closed).resolves.toBe('cancel');
   });
 
   it('labels the primary button by what it does', () => {
@@ -155,25 +247,30 @@ describe('createModal', () => {
     expect(css).toHaveTextContent(/\.dialog\s*\{[^}]*border: 1px solid/);
   });
 
-  it('closes on Escape and removes the listener', async () => {
+  it('cancels on Escape and removes the listener', async () => {
     const user = userEvent.setup();
     const modal = createModal(document);
-    modal.showError('x');
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
-    expect(hosts()).toHaveLength(1);
+    modal.showResult('a', 'b', []);
     await user.keyboard('{Escape}');
-    await modal.closed;
+    await expect(modal.closed).resolves.toBe('cancel');
     expect(hosts()).toHaveLength(0);
+
+    // A leftover listener would swallow the page's own Escape handling.
+    const pageHandler = vi.fn();
+    document.addEventListener('keydown', pageHandler);
+    await user.keyboard('{Escape}');
+    document.removeEventListener('keydown', pageHandler);
+    expect(pageHandler).toHaveBeenCalledOnce();
   });
 
-  it('closes on backdrop click but not on dialog click', async () => {
+  it('cancels on backdrop click but not on dialog click', async () => {
     const user = userEvent.setup();
     const modal = createModal(document);
-    modal.showError('x');
+    modal.showResult('a', 'b', []);
     await user.click(within(shadowRoot()).getByRole('dialog'));
     expect(hosts()).toHaveLength(1);
     await user.click(within(shadowRoot()).getByRole('presentation'));
-    await modal.closed;
+    await expect(modal.closed).resolves.toBe('cancel');
     expect(hosts()).toHaveLength(0);
   });
 
