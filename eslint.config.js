@@ -6,7 +6,8 @@ import unicorn from 'eslint-plugin-unicorn';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'coverage/**', 'node_modules/**'] },
+  // eval/ holds a Node script that runs the model eval against the real API, not extension code.
+  { ignores: ['dist/**', 'coverage/**', 'node_modules/**', 'eval/*.mjs'] },
   js.configs.recommended,
   tseslint.configs.strictTypeChecked,
   tseslint.configs.stylisticTypeChecked,

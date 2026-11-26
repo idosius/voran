@@ -18,6 +18,8 @@ npm test               # vitest run --coverage (happy-dom, coverage thresholds e
 npm run check          # typecheck + lint + format:check + test
 npx vitest run tests/diff.test.ts            # single test file
 npx vitest run -t "name substring"           # single test by name
+node eval/run.mjs --fake perfect             # free self-check of the model eval (lazy: must fail)
+ANTHROPIC_API_KEY=... node eval/run.mjs --label NAME  # model eval (eval/cases.json); compares to eval/results/baseline.json
 ```
 
 Commits use Conventional Commits (`type(scope)!: subject`).
