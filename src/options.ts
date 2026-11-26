@@ -1,7 +1,8 @@
 import { attachCombobox } from './combobox';
 import {
-  STORAGE_KEY_API_KEY,
+  STORAGE_KEYS_API_KEY,
   STORAGE_KEY_LANGUAGE,
+  STORAGE_KEY_PROVIDER,
   STORAGE_KEY_REASON_LANGUAGE,
 } from './constants';
 import {
@@ -16,6 +17,13 @@ import {
   normalizeSettings,
 } from './languages';
 import { hasApiAccess, requestApiAccess } from './permissions';
+import {
+  DEFAULT_PROVIDER,
+  isProviderId,
+  PROVIDER_INFO,
+  PROVIDERS,
+  type ProviderId,
+} from './providers';
 
 function requireElement<T extends HTMLElement>(id: string, type: new () => T): T {
   const element = document.querySelector(`#${id}`);
@@ -30,9 +38,60 @@ const input = requireElement('apiKey', HTMLInputElement);
 const languageInput = requireElement('language', HTMLInputElement);
 const reasonLanguageInput = requireElement('reasonLanguage', HTMLInputElement);
 const status = requireElement('status', HTMLParagraphElement);
-const fields = [input, languageInput, reasonLanguageInput];
+const providerSelect = requireElement('provider', HTMLSelectElement);
+const providerHint = requireElement('providerHint', HTMLParagraphElement);
+const keyLabel = requireElement('apiKeyLabel', HTMLLabelElement);
+const keyHint = requireElement('keyHint', HTMLSpanElement);
+const keyLink = requireElement('keyLink', HTMLAnchorElement);
+const fields = [input, languageInput, reasonLanguageInput, providerSelect];
 const access = requireElement('access', HTMLElement);
+const accessText = requireElement('accessText', HTMLParagraphElement);
 const grantAccess = requireElement('grantAccess', HTMLButtonElement);
+
+for (const provider of PROVIDERS) {
+  const option = document.createElement('option');
+  option.value = provider.id;
+  option.textContent = provider.company;
+  providerSelect.append(option);
+}
+
+// The key typed for each provider. The key field shows the selected provider's entry and writes
+// back to it on every keystroke, so a save always finds each key under its own provider.
+const keys: Record<ProviderId, string> = { anthropic: '', openai: '' };
+const shown: { provider: ProviderId } = { provider: DEFAULT_PROVIDER };
+
+function selectedProvider(): ProviderId {
+  return isProviderId(providerSelect.value) ? providerSelect.value : DEFAULT_PROVIDER;
+}
+
+function showProvider(id: ProviderId): void {
+  const info = PROVIDER_INFO[id];
+  shown.provider = id;
+  providerSelect.value = id;
+  input.value = keys[id];
+  providerHint.textContent = `Selected text is sent to ${info.company} for correction.`;
+  keyLabel.textContent = `${info.company} API key`;
+  keyHint.textContent = `The key is stored locally in this browser profile and sent only to ${info.host}.`;
+  keyLink.textContent = `Get an ${info.company} API key`;
+  keyLink.href = info.keyUrl;
+  accessText.textContent = `Voran needs access to ${info.host} to correct text.`;
+  grantAccess.textContent = `Grant access to ${info.host}`;
+  void showAccess();
+}
+
+// The user can withhold API access (Chrome site access setting, Firefox about:addons), also while
+// this page is open. Only the selected provider's API matters.
+async function showAccess(): Promise<void> {
+  access.hidden = await hasApiAccess(chrome.permissions, shown.provider);
+}
+
+async function grant(): Promise<void> {
+  status.textContent = '';
+  if (!(await requestApiAccess(chrome.permissions, shown.provider))) {
+    status.textContent = 'Access not granted.';
+  }
+  await showAccess();
+}
 
 const labels = LANGUAGES.map((language) => languageLabel(language));
 attachCombobox(languageInput, [AUTO_LABEL, ...labels]);
@@ -52,20 +111,23 @@ function showSettings(language: string, reasonLanguage: string): void {
 }
 
 showSettings(DEFAULT_SETTINGS.language, DEFAULT_SETTINGS.reasonLanguage);
+showProvider(DEFAULT_SETTINGS.provider);
 
 async function load(): Promise<void> {
   try {
     const stored = await chrome.storage.local.get([
-      STORAGE_KEY_API_KEY,
+      ...Object.values(STORAGE_KEYS_API_KEY),
       STORAGE_KEY_LANGUAGE,
       STORAGE_KEY_REASON_LANGUAGE,
+      STORAGE_KEY_PROVIDER,
     ]);
-    const apiKey = stored[STORAGE_KEY_API_KEY];
-    if (typeof apiKey === 'string') {
-      input.value = apiKey;
+    for (const { id } of PROVIDERS) {
+      const apiKey = stored[STORAGE_KEYS_API_KEY[id]];
+      keys[id] = typeof apiKey === 'string' ? apiKey : '';
     }
     const settings = normalizeSettings(stored);
     showSettings(settings.language, settings.reasonLanguage);
+    showProvider(settings.provider);
     for (const field of fields) {
       field.disabled = false;
     }
@@ -91,25 +153,40 @@ function resolve(text: string, special: string, specialLabel: string): string | 
     : languageFromLabel(trimmed)?.id;
 }
 
-async function save(apiKey: string): Promise<void> {
+/**
+Writes the whole page state: provider and every provider's key always, the languages only when both
+name a known language. Each save reads the current state, so the order of queued saves does not
+matter.
+*/
+async function save(): Promise<void> {
   status.textContent = '';
   const language = resolve(languageInput.value, AUTO_LANGUAGE, AUTO_LABEL);
   const reasonLanguage = resolve(reasonLanguageInput.value, SAME_LANGUAGE, SAME_LABEL);
-  if (language === undefined || reasonLanguage === undefined) {
-    status.textContent = 'Pick a language from the list.';
-    return;
-  }
+  const languagesValid = language !== undefined && reasonLanguage !== undefined;
+  const provider = selectedProvider();
+  const trimmed = PROVIDERS.map(({ id }) => [STORAGE_KEYS_API_KEY[id], keys[id].trim()] as const);
   try {
     await chrome.storage.local.set({
-      [STORAGE_KEY_LANGUAGE]: language,
-      [STORAGE_KEY_REASON_LANGUAGE]: reasonLanguage,
-      ...(apiKey !== '' && { [STORAGE_KEY_API_KEY]: apiKey }),
+      [STORAGE_KEY_PROVIDER]: provider,
+      ...Object.fromEntries(trimmed.filter(([, key]) => key !== '')),
+      ...(languagesValid && {
+        [STORAGE_KEY_LANGUAGE]: language,
+        [STORAGE_KEY_REASON_LANGUAGE]: reasonLanguage,
+      }),
     });
-    if (apiKey === '') {
-      await chrome.storage.local.remove(STORAGE_KEY_API_KEY);
+    const cleared = trimmed.filter(([, key]) => key === '').map(([name]) => name);
+    if (cleared.length > 0) {
+      await chrome.storage.local.remove(cleared);
+    }
+    if (!languagesValid) {
+      status.textContent = 'Pick a language from the list.';
+      return;
     }
     showSettings(language, reasonLanguage);
-    status.textContent = apiKey === '' ? 'Saved. Key removed.' : 'Saved.';
+    status.textContent =
+      keys[provider].trim() === ''
+        ? `Saved. No ${PROVIDER_INFO[provider].company} API key set.`
+        : 'Saved.';
   } catch {
     status.textContent = 'Could not save the settings.';
   }
@@ -120,7 +197,7 @@ const queue = { tail: Promise.resolve() };
 
 async function saveAfter(previous: Promise<void>): Promise<void> {
   await previous;
-  await save(input.value.trim());
+  await save();
 }
 
 function queueSave(): void {
@@ -130,22 +207,15 @@ function queueSave(): void {
 form.addEventListener('submit', (event) => {
   event.preventDefault();
 });
+input.addEventListener('input', () => {
+  keys[shown.provider] = input.value;
+});
+// Show the newly selected provider's own key; the previous one stays stored under its provider.
+providerSelect.addEventListener('change', () => {
+  showProvider(selectedProvider());
+});
 for (const field of fields) {
   field.addEventListener('change', queueSave);
-}
-
-// The user can withhold API access (Chrome site access setting, Firefox about:addons), also while
-// this page is open.
-async function showAccess(): Promise<void> {
-  access.hidden = await hasApiAccess(chrome.permissions);
-}
-
-async function grant(): Promise<void> {
-  status.textContent = '';
-  if (!(await requestApiAccess(chrome.permissions))) {
-    status.textContent = 'Access not granted.';
-  }
-  await showAccess();
 }
 
 grantAccess.addEventListener('click', () => {
@@ -157,4 +227,3 @@ chrome.permissions.onAdded.addListener(() => {
 chrome.permissions.onRemoved.addListener(() => {
   void showAccess();
 });
-void showAccess();

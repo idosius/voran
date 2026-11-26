@@ -1,4 +1,5 @@
 import { isRecord } from './messages';
+import { DEFAULT_PROVIDER, isProviderId, type ProviderId } from './providers';
 
 export interface Language {
   // English name; used verbatim in the prompt and as the stored value.
@@ -17,9 +18,15 @@ export interface Settings {
   readonly language: string;
   // `SAME_LANGUAGE` or a language id.
   readonly reasonLanguage: string;
+  // Which API corrects the text.
+  readonly provider: ProviderId;
 }
 
-export const DEFAULT_SETTINGS: Settings = { language: AUTO_LANGUAGE, reasonLanguage: 'English' };
+export const DEFAULT_SETTINGS: Settings = {
+  language: AUTO_LANGUAGE,
+  reasonLanguage: 'English',
+  provider: DEFAULT_PROVIDER,
+};
 
 export const LANGUAGES: readonly Language[] = [
   { id: 'Afrikaans', native: 'Afrikaans' },
@@ -116,5 +123,6 @@ export function normalizeSettings(raw: unknown): Settings {
   return {
     language: pick(record['language'], AUTO_LANGUAGE, DEFAULT_SETTINGS.language),
     reasonLanguage: pick(record['reasonLanguage'], SAME_LANGUAGE, DEFAULT_SETTINGS.reasonLanguage),
+    provider: isProviderId(record['provider']) ? record['provider'] : DEFAULT_SETTINGS.provider,
   };
 }

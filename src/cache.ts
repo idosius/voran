@@ -1,4 +1,4 @@
-import { MODEL } from './constants';
+import { MODELS } from './constants';
 import type { Settings } from './languages';
 import { type FixResult, isRecord, isSegmentList } from './messages';
 
@@ -33,7 +33,12 @@ function isEntry(value: unknown): value is Entry {
 
 async function cacheKey(text: string, settings: Settings): Promise<string> {
   // The model and settings are part of the key: a change to either must not serve an old answer.
-  const source = JSON.stringify([MODEL, settings.language, settings.reasonLanguage, text]);
+  const source = JSON.stringify([
+    MODELS[settings.provider],
+    settings.language,
+    settings.reasonLanguage,
+    text,
+  ]);
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(source));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }

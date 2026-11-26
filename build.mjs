@@ -20,7 +20,7 @@ function firefoxManifest(base) {
         id: 'voran@voran',
         // First version (ESR 140) that knows data_collection_permissions.
         strict_min_version: '140.0',
-        // Selected page text is sent to Anthropic.
+        // Selected page text is sent to the chosen provider (Anthropic or OpenAI).
         data_collection_permissions: { required: ['websiteContent'] },
       },
     },

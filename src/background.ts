@@ -1,14 +1,16 @@
 import { createFixCache } from './cache';
-import { ClaudeError, fixText, hasLetters } from './claude';
 import {
   MENU_ID,
-  STORAGE_KEY_API_KEY,
   STORAGE_KEY_LANGUAGE,
+  STORAGE_KEY_PROVIDER,
   STORAGE_KEY_REASON_LANGUAGE,
+  STORAGE_KEYS_API_KEY,
 } from './constants';
+import { CorrectionError, fixText, hasLetters } from './correction';
 import { normalizeSettings } from './languages';
 import { type FixResponse, type StartMessage, isBackgroundRequest } from './messages';
 import { NoAccessError, requireApiAccess } from './permissions';
+import { PROVIDER_INFO } from './providers';
 
 chrome.runtime.onInstalled.addListener(({ reason }) => {
   chrome.contextMenus.create({
@@ -62,22 +64,28 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 const fixCache = createFixCache(chrome.storage.session);
 
 async function handleFix(text: string): Promise<FixResponse> {
+  // One read, so the provider and its key always come from the same moment.
   const stored = await chrome.storage.local.get([
-    STORAGE_KEY_API_KEY,
+    ...Object.values(STORAGE_KEYS_API_KEY),
     STORAGE_KEY_LANGUAGE,
     STORAGE_KEY_REASON_LANGUAGE,
+    STORAGE_KEY_PROVIDER,
   ]);
-  const apiKey = stored[STORAGE_KEY_API_KEY];
+  const settings = normalizeSettings(stored);
+  const apiKey = stored[STORAGE_KEYS_API_KEY[settings.provider]];
   if (typeof apiKey !== 'string' || apiKey === '') {
-    return { ok: false, error: 'No API key set.', needsOptions: true };
+    return {
+      ok: false,
+      error: `No ${PROVIDER_INFO[settings.provider].company} API key set.`,
+      needsOptions: true,
+    };
   }
   try {
-    const settings = normalizeSettings(stored);
     // Access is checked only when the API is called: cached results and text without letters
     // need no request.
     const result = await fixCache.run(text, settings, async () => {
       if (hasLetters(text)) {
-        await requireApiAccess(chrome.permissions);
+        await requireApiAccess(chrome.permissions, settings.provider);
       }
       return fixText(text, apiKey, settings);
     });
@@ -86,7 +94,7 @@ async function handleFix(text: string): Promise<FixResponse> {
     if (error instanceof NoAccessError) {
       return { ok: false, error: error.message, needsOptions: true };
     }
-    const message = error instanceof ClaudeError ? error.message : 'Unexpected error.';
+    const message = error instanceof CorrectionError ? error.message : 'Unexpected error.';
     return { ok: false, error: message, needsOptions: false };
   }
 }

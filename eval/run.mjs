@@ -7,7 +7,8 @@
 //   node eval/run.mjs --fake lazy                                # free self-check: must score ~0%
 //
 // Options: --label NAME (saves eval/results/NAME.json), --reps N (runs per case, default 2),
-// --only ID_PREFIX (e.g. --only de).
+// --only ID_PREFIX (e.g. --only de), --provider anthropic|openai (default anthropic; openai also
+// needs OPENAI_API_KEY, the judge always uses ANTHROPIC_API_KEY).
 // After a run, the table also shows eval/results/baseline.json for comparison, if it exists.
 //
 // How a case is graded:
@@ -24,9 +25,11 @@ import { build } from 'esbuild';
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const JUDGE_MODEL = 'claude-sonnet-5-5';
 // Dollars per million tokens. Cache writes cost 1.25x input, cache reads 0.1x input.
+// OpenAI model ids in replies may carry a snapshot suffix, so prices match by prefix.
 const PRICES = {
   'claude-haiku-5-5': { in: 0.1, out: 0.5 },
   'claude-sonnet-5-5': { in: 2, out: 10 },
+  'gpt-6-luna': { in: 0.1, out: 0.5 },
 };
 const CONCURRENCY = 4;
 
@@ -36,16 +39,26 @@ const { values: options } = parseArgs({
     reps: { type: 'string', default: '2' },
     only: { type: 'string' },
     fake: { type: 'string' },
+    provider: { type: 'string', default: 'anthropic' },
   },
 });
 const reps = Number(options.reps);
 const fake = options.fake;
+const provider = options.provider;
 if (fake !== undefined && fake !== 'perfect' && fake !== 'lazy') {
   throw new Error('--fake must be "perfect" or "lazy"');
 }
+if (provider !== 'anthropic' && provider !== 'openai') {
+  throw new Error('--provider must be "anthropic" or "openai"');
+}
+// The judge is always Claude, so a real run needs an Anthropic key either way.
 const apiKey = fake ? 'fake' : process.env.ANTHROPIC_API_KEY;
 if (!apiKey) {
   throw new Error('Set ANTHROPIC_API_KEY, or use --fake perfect / --fake lazy for a free check.');
+}
+const appKey = fake || provider === 'anthropic' ? apiKey : process.env.OPENAI_API_KEY;
+if (!appKey) {
+  throw new Error('Set OPENAI_API_KEY to evaluate --provider openai.');
 }
 
 // ---------- cases ----------
@@ -71,7 +84,7 @@ async function loadApp() {
   const out = await build({
     stdin: {
       contents:
-        "export { fixText } from './src/claude'; export { DEFAULT_SETTINGS } from './src/languages';",
+        "export { fixText } from './src/correction'; export { DEFAULT_SETTINGS } from './src/languages';",
       resolveDir: process.cwd(),
       loader: 'ts',
     },
@@ -85,12 +98,21 @@ async function loadApp() {
   return import(`data:text/javascript;base64,${code}`);
 }
 
+/** A canned reply in the provider's wire format for one tool call. */
+function fakeToolReply(name, input) {
+  const usage = { input_tokens: 0, output_tokens: 0 };
+  if (provider === 'openai') {
+    const output = [{ type: 'function_call', name, arguments: JSON.stringify(input) }];
+    return { model: 'fake', status: 'completed', usage, output };
+  }
+  const content = [{ type: 'tool_use', name, input }];
+  return { model: 'fake', stop_reason: 'tool_use', usage, content };
+}
+
 /** A canned API reply for --fake: either exactly the planted fixes, or "already correct". */
 function fakeReply(testCase) {
-  const usage = { input_tokens: 0, output_tokens: 0 };
   if (fake === 'lazy' || testCase.mistakes.length === 0) {
-    const content = [{ type: 'tool_use', name: 'confirm_correct', input: {} }];
-    return { model: 'fake', stop_reason: 'tool_use', usage, content };
+    return fakeToolReply('confirm_correct', {});
   }
   const segments = [];
   let cursor = 0;
@@ -100,10 +122,7 @@ function fakeReply(testCase) {
     cursor = m.end;
   }
   segments.push({ text: testCase.input.slice(cursor) });
-  const content = [
-    { type: 'tool_use', name: 'submit_correction', input: { language: 'x', segments } },
-  ];
-  return { model: 'fake', stop_reason: 'tool_use', usage, content };
+  return fakeToolReply('submit_correction', { language: 'x', segments });
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -127,8 +146,8 @@ async function runApp(app, testCase) {
     try {
       const result = await app.fixText(
         testCase.input,
-        apiKey,
-        app.DEFAULT_SETTINGS,
+        appKey,
+        { ...app.DEFAULT_SETTINGS, provider },
         recordingFetch,
       );
       return { result, calls, seconds: (Date.now() - started) / 1000 };
@@ -343,7 +362,7 @@ async function grade(testCase, result) {
 // ---------- cost ----------
 
 function cost(model, usage) {
-  const price = PRICES[model];
+  const price = PRICES[model] ?? Object.entries(PRICES).find(([id]) => model?.startsWith(id))?.[1];
   if (!price || !usage) return 0;
   const input =
     (usage.input_tokens ?? 0) +
@@ -352,11 +371,27 @@ function cost(model, usage) {
   return (input * price.in + (usage.output_tokens ?? 0) * price.out) / 1e6;
 }
 
+/**
+Usage in Anthropic's terms. OpenAI counts cached tokens inside input_tokens and reports them in
+input_tokens_details.cached_tokens; cache writes cost nothing extra there.
+*/
+function anthropicUsage(usage) {
+  const cached = usage?.input_tokens_details?.cached_tokens;
+  if (cached === undefined) return usage;
+  return {
+    input_tokens: usage.input_tokens - cached,
+    output_tokens: usage.output_tokens,
+    cache_read_input_tokens: cached,
+    cache_creation_input_tokens: 0,
+  };
+}
+
 // ---------- main ----------
 
 async function runOne(app, testCase, rep) {
   const run = await runApp(app, testCase);
-  const sum = (key) => run.calls.reduce((total, c) => total + (c.body?.usage?.[key] ?? 0), 0);
+  const sum = (key) =>
+    run.calls.reduce((total, c) => total + (anthropicUsage(c.body?.usage)?.[key] ?? 0), 0);
   const model = run.calls.at(-1)?.body?.model;
   const usage = {
     input_tokens: sum('input_tokens'),
@@ -437,7 +472,7 @@ function printTable(columns) {
     ['input tokens / case', (s) => s.inTokens.toFixed(0)],
     ['cache read / case', (s) => s.cacheRead.toFixed(0)],
     ['cache write / case', (s) => s.cacheWrite.toFixed(0)],
-    ['Haiku cost / case', (s) => `$${s.costPerCase.toFixed(5)}`],
+    ['app cost / case', (s) => `$${s.costPerCase.toFixed(5)}`],
     ['seconds / case', (s) => s.seconds.toFixed(1)],
     ['cases needing retry', (s) => s.retries],
     ['runs (infra errors)', (s) => `${s.runs} (${s.infraErrors})`],
