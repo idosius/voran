@@ -2,6 +2,8 @@
 
 Chrome and Firefox extension (Manifest V3). Select text in any language, right-click, choose **Fix text with Voran**. Claude Haiku (or, if you choose, OpenAI's GPT-6 Luna) returns a corrected version. A dialog shows an inline word diff (removed words struck through, added words highlighted). Hover (or Tab to) a correction to see the reason in a tooltip. When you apply the correction, the corrected text replaces the selection; cancelling leaves it unchanged.
 
+![Voran dialog correcting the German sentence "ich essen leckerige Pizze" to "ich esse leckere Pizzen", with removed words struck through, added words highlighted, and a tooltip giving the reason for one change](voran_screenshot.jpg)
+
 ## Requirements
 
 - Node.js 22 or newer
