@@ -1,47 +1,73 @@
 # Voran
 
-Chrome and Firefox extension (Manifest V3). Select text in any language, right-click, choose **Fix text with Voran**. Claude Haiku (or, if you choose, OpenAI's GPT-6 Luna) returns a corrected version. A dialog shows an inline word diff (removed words struck through, added words highlighted). Hover (or Tab to) a correction to see the reason in a tooltip. When you apply the correction, the corrected text replaces the selection; cancelling leaves it unchanged.
+**Fix your writing and learn while you do it, one right-click away.** ✨
+
+Writing emails, chat messages or forum posts in a language you're still learning? Voran fixes your spelling and grammar and shows you why. You get better at the language just by writing in it, every day, wherever you already write. No flashcards, no separate app.
+
+Select some text on any page, right-click, and pick **Fix text with Voran**. You'll see exactly what changed: mistakes are struck through and fixes are highlighted. Hover over a fix (or Tab to it) to read a short explanation, in your own language if you like. Over time you'll spot the same mistakes before Voran does.
+
+Happy with the fix? Press **Apply correction** (or Enter) and it replaces your text. Changed your mind? Press Cancel and your text stays as it was. And if there was nothing to fix, you get a little green checkmark instead. Nice work! 🎉
+
+Works in Chrome, Firefox and other Chromium browsers like Edge, Brave, Opera and Vivaldi, powered by Claude Haiku (or OpenAI's GPT-6 Luna, if that's more your style).
 
 ![Voran dialog correcting the German sentence "ich essen leckerige Pizze" to "ich esse leckere Pizzen", with removed words struck through, added words highlighted, and a tooltip giving the reason for one change](voran_screenshot.jpg)
 
 ## Requirements
 
 - Node.js 22 or newer
-- Chrome 120 or newer, or Firefox 140 or newer (desktop)
-- An Anthropic or OpenAI API key
+- Chrome 120 or newer (or another Chromium browser based on version 120 or newer), or desktop Firefox 140 or newer
+- An API key from Anthropic or OpenAI
 
 ## Install
+
+Build the extension:
 
 ```sh
 npm install
 npm run build
 ```
 
-The build writes one package per browser: `dist/chrome/` and `dist/firefox/`.
+This creates one folder per browser: `dist/chrome/` and `dist/firefox/`.
 
-Chrome:
+**Chrome and other Chromium browsers**
 
-1. Open `chrome://extensions` and enable Developer mode.
-2. Click **Load unpacked** and select the `dist/chrome/` directory.
+1. Open the extensions page (`chrome://extensions` in Chrome, `edge://extensions` in Edge, `brave://extensions` in Brave) and turn on **Developer mode**.
+2. Click **Load unpacked** and pick the `dist/chrome/` folder.
 
-Firefox:
+Voran is tested in Chrome. Edge, Brave, Opera and Vivaldi use the same extension system, so the `dist/chrome/` build should work there too.
 
-1. Run `npm run start:firefox` (opens a fresh Firefox profile with Voran loaded), or open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on…** and select `dist/firefox/manifest.json`.
-   The options page opens on install. Pick the AI provider (Anthropic by default, or OpenAI) and enter that provider's API key. If it shows **Grant access to api.anthropic.com** (or api.openai.com), click it: Voran needs that access to send text for correction. You can withhold it later (Chrome: the extension's **Site access** setting; Firefox: `about:addons`), and Voran then asks you to grant it again. There you can also set the language of the text you correct (default: auto-detect) and the language of the explanation tooltips (default: English). Changes save automatically.
+**Firefox**
+
+Run `npm run start:firefox`. This opens a fresh Firefox profile with Voran already loaded.
+
+Or load it into your own Firefox: open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on…** and pick `dist/firefox/manifest.json`. Firefox removes temporary add-ons when it restarts.
+
+## Setup
+
+Voran opens its options page right after you install it. There you:
+
+1. **Pick a provider.** Anthropic is the default; OpenAI is the alternative.
+2. **Paste your API key** for that provider.
+3. **Grant access** if you see a **Grant access to api.anthropic.com** (or api.openai.com) button. Voran needs it to send your text for correction. If you remove this access later (Chrome: the extension's **Site access** setting; Firefox: `about:addons`), Voran asks for it again.
+4. **Choose languages (optional).** Set the language of the text you correct (default: auto-detect) and the language of the explanations (default: English).
+
+Changes save automatically.
 
 ## Usage
 
-Select text, right-click, choose **Fix text with Voran**. When changes are proposed, **Apply correction** (or Enter) applies them; **Cancel**, Esc or a click outside the dialog discards them and leaves the text alone.
+1. Select some text and right-click it.
+2. Pick **Fix text with Voran**. A small "Checking…" label appears over the text while Voran works.
+3. If there's something to fix, a dialog shows the changes. Press **Apply correction** (or Enter) to use them. Press **Cancel**, Esc or click outside the dialog to keep your text as it was.
 
-Replacement depends on where the text was selected:
+If nothing needs fixing, you see a green checkmark over the text instead and nothing changes.
 
-| Selection                                | Result                                                                                                                                                                                                                          |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<input>`, `<textarea>`, contenteditable | Replaced in place; the page's undo stack is kept. In rich text (e.g. pasted from Gmail or Docs) only the corrected words change, so bold, links and lists stay; a correction that crosses a line break falls back to plain text |
-| Read-only page text                      | Corrected text is copied to the clipboard                                                                                                                                                                                       |
-| Text changed while the dialog was open   | Corrected text is copied to the clipboard                                                                                                                                                                                       |
+Where the fix ends up depends on where you selected the text:
 
-If nothing needs correcting, no dialog opens. A green checkmark appears briefly over the text and the text is left alone. While waiting for the model, a small "Checking…" pill shows over the selected text.
+| You selected text in…                     | What happens                                                                                                                                                                                                              |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<input>`, `<textarea>`, contenteditable  | The text is replaced in place, and Ctrl/Cmd+Z still undoes it. In rich text (e.g. from Gmail or Docs) only the changed words are swapped, so bold, links and lists survive. A fix across a line break becomes plain text. |
+| Read-only page text                       | The fixed text is copied to your clipboard.                                                                                                                                                                               |
+| Text you edited while the dialog was open | The fixed text is copied to your clipboard, so your edits are not overwritten.                                                                                                                                            |
 
 ## How it works
 
@@ -64,7 +90,7 @@ dialog applied -> content script replaces text
 - `src/options.ts`, `src/options.html`: provider, API key and language settings (searchable language lists).
 - `src/permissions.ts`: checks and requests host access to the selected provider's API (revocable in Firefox).
 
-The selected text is sent to the chosen provider (Anthropic or OpenAI; OpenAI requests use `store: false`). The API key is sent only to that provider's API host. Each provider's key is stored separately; the options page shows the key of the selected provider. A key that belongs to the other provider (`sk-ant-…` is Anthropic, any other `sk-…` OpenAI) is never sent.
+Privacy: your selected text goes only to the provider you chose (OpenAI requests use `store: false`, so OpenAI does not keep them). Each provider has its own stored key, and a key is sent only to its own provider's API. If you paste a key into the wrong provider's field (`sk-ant-…` keys are Anthropic's, other `sk-…` keys OpenAI's), Voran refuses to send it.
 
 ## Development
 
@@ -72,15 +98,17 @@ The selected text is sent to the chosen provider (Anthropic or OpenAI; OpenAI re
 npm run watch
 ```
 
-Rebuilds `dist/chrome/` and `dist/firefox/` on source changes. Static files (`manifest.json`, `options.html`) are copied once at start; rerun after editing them. After each rebuild, click the reload icon for Voran on `chrome://extensions` (Chrome) or **Reload** on `about:debugging` (Firefox; `npm run start:firefox` reloads by itself), then reload the tab you are testing in.
+This rebuilds `dist/chrome/` and `dist/firefox/` whenever a source file changes. `manifest.json` and `options.html` are only copied when watch starts, so restart it after editing them.
 
-The Firefox manifest is generated from `manifest.json` in `build.mjs`: the background script runs as an event page (`background.scripts`), `minimum_chrome_version` is dropped, and `browser_specific_settings.gecko` adds the add-on ID `voran@voran` and the minimum version.
+After each rebuild, reload the extension (Chrome: the reload icon on `chrome://extensions`; Firefox: **Reload** on `about:debugging`, or nothing if you use `npm run start:firefox`), then reload the tab you're testing in.
 
-Debugging:
+There is only one `manifest.json`. `build.mjs` derives the Firefox version from it: the background script runs as an event page (`background.scripts`), `minimum_chrome_version` is dropped, and `browser_specific_settings.gecko` adds the add-on ID `voran@voran` and the minimum Firefox version.
 
-- Background: **service worker** link on the extension card on `chrome://extensions`; in Firefox, **Inspect** next to Voran on `about:debugging`.
-- Content script and dialog: the page's DevTools console. Elements appear under `<voran-root>`.
-- Options page: DevTools on the options tab.
+Where to debug:
+
+- **Background script:** Chrome: the **service worker** link on Voran's card on `chrome://extensions`. Firefox: **Inspect** next to Voran on `about:debugging`.
+- **Content script and dialog:** the page's own DevTools. The dialog lives under `<voran-root>`.
+- **Options page:** DevTools on the options tab.
 
 ### Checks
 
@@ -95,15 +123,15 @@ Debugging:
 
 ESLint runs with `--max-warnings 0`. `innerHTML`, `outerHTML` and `insertAdjacentHTML` are errors.
 
-`npm run lint:firefox` reports one expected warning, `KEY_FIREFOX_ANDROID_UNSUPPORTED_BY_MIN_VERSION`: Firefox for Android only knows `data_collection_permissions` from version 142. Voran does not support Android (no context menus there), so the manifest declares no `gecko_android` and keeps desktop Firefox ESR 140 as the minimum.
+`npm run lint:firefox` shows one warning you can ignore: `KEY_FIREFOX_ANDROID_UNSUPPORTED_BY_MIN_VERSION`. Firefox for Android only supports `data_collection_permissions` from version 142, but Voran doesn't run on Android anyway (it has no context menus). So the manifest has no `gecko_android` entry and keeps desktop Firefox ESR 140 as the minimum.
 
 ### Unit tests
 
-`tests/` covers the diff output, the Claude request and error handling (mocked `fetch`), the dialog (including that untrusted text is never parsed as HTML), selection capture, and replacement. `background.ts`, `content.ts` and `options.ts` are thin wiring and excluded from coverage; test them manually.
+`tests/` covers the diff, the Anthropic and OpenAI requests and their errors (with a mocked `fetch`), the cache, the dialog (including that page and model text is never parsed as HTML), selection capture and replacement, permissions, settings and the language picker. `background.ts`, `content.ts` and `options.ts` only wire these together; they're excluded from coverage and tested by hand with the checklist below.
 
 ### Manual test checklist
 
-Create an HTML file with a `<textarea>`, an `<input>`, a `<div contenteditable>` and a `<p>`, open it in Chrome and in Firefox, and use text such as:
+Make an HTML file with a `<textarea>`, an `<input>`, a `<div contenteditable>` and a `<p>`. Open it in both Chrome and Firefox and try text with mistakes, such as:
 
 > Ich habe gestern ein Buch gelesen, das war sehr interessant gewesen. Die Kinder spielt im Garten.
 
@@ -133,6 +161,8 @@ manifest.json        extension manifest
 build.mjs            esbuild bundling into dist/chrome and dist/firefox
 src/                 extension source
 tests/               unit tests
+eval/                model quality eval (cases, runner, results)
+icons/               extension icons
 eslint.config.js     lint rules
 tsconfig.json        strict config for src and tests
 tsconfig.node.json   strict config for build and tool configs
@@ -140,20 +170,20 @@ tsconfig.node.json   strict config for build and tool configs
 
 ## Limitations
 
-- The API key is stored unencrypted in `chrome.storage.local`.
-- Firefox: a temporary add-on is removed when Firefox restarts. Firefox for Android has no context menus, so Voran does not work there.
-- Selections are capped at 8000 characters.
-- With a fixed text language, text clearly in another language is returned unchanged. Use auto-detect to avoid this.
-- Auto-detect can misjudge very short or ambiguous selections (a single word, close language pairs). The dialog shows the detected language so a wrong guess is visible.
-- The language list is curated (~45 languages); add more in `src/languages.ts`.
-- Selections inside shadow roots of the host page cannot be replaced in place; the corrected text is copied.
-- Read-only and disabled fields are never modified; the corrected text is copied.
-- A correction times out after 60 seconds, including one automatic retry when the model replies without calling a tool.
+- Your API key is stored unencrypted in `chrome.storage.local`.
+- Firefox removes a temporary add-on when it restarts. Firefox for Android has no context menus, so Voran doesn't work there.
+- You can check up to 8000 characters at a time.
+- If you set a fixed text language, text that is clearly in another language comes back unchanged. Use auto-detect to avoid this.
+- Auto-detect can guess wrong on very short or ambiguous text (a single word, closely related languages). The dialog shows which language it detected, so you can spot a wrong guess.
+- About 45 languages are listed; more can be added in `src/languages.ts`.
+- Text inside a page's own shadow DOM can't be replaced in place; the fixed text is copied instead.
+- Read-only and disabled fields are never changed; the fixed text is copied instead.
+- A correction gives up after 60 seconds. That includes one automatic retry if the model answers without using its tools.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Contributions require agreeing to the contributor license grant described there.
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md). Contributing requires agreeing to the contributor license grant described there.
 
 ## License
 
-[PolyForm Noncommercial License 1.0.0](LICENSE.md). Free for personal, research, hobby and other noncommercial use, and for noncommercial organizations. For commercial use, contact the author for a separate license.
+[PolyForm Noncommercial License 1.0.0](LICENSE.md). Voran is free for personal, research, hobby and other noncommercial use, and for noncommercial organizations. For commercial use, contact the author about a separate license.
