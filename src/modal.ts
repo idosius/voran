@@ -43,6 +43,7 @@ h2 { margin: 0; font-size: 16px; }
 }
 .tooltip[hidden] { display: none; }
 .message { margin: 0; }
+.language { margin: 0; font-size: 12px; opacity: 0.7; }
 .error { color: light-dark(#b42318, #ff8a80); }
 .actions { display: flex; justify-content: flex-end; gap: 8px; }
 button {
@@ -97,7 +98,13 @@ export interface Modal {
   // Resolves once the user dismisses the dialog.
   readonly closed: Promise<void>;
   // `segments` carry the reason per correction; without them only the plain diff is shown.
-  showResult: (original: string, fixed: string, segments: readonly Segment[]) => void;
+  // `language` is the language the model detected, when it reported one.
+  showResult: (
+    original: string,
+    fixed: string,
+    segments: readonly Segment[],
+    language?: string,
+  ) => void;
   showError: (message: string, action?: ErrorAction) => void;
 }
 
@@ -294,19 +301,21 @@ export function createModal(doc: Document): Modal {
 
   return {
     closed,
-    showResult: (original, fixed, segments): void => {
+    showResult: (original, fixed, segments, language): void => {
+      const note =
+        language === undefined ? [] : [el(doc, 'p', 'language', `Detected language: ${language}`)];
       const diff = inlineDiff(original, fixed);
       if (diff.length === 0) {
         render([el(doc, 'p', 'message', 'No corrections needed.')]);
         return;
       }
       if (segments.length === 0) {
-        render([renderDiff(doc, diff)], undefined, true);
+        render([renderDiff(doc, diff), ...note], undefined, true);
         return;
       }
       const container = renderSegments(doc, segments);
       attachTooltip(doc, tooltip, container);
-      render([container], undefined, true);
+      render([container, ...note], undefined, true);
     },
     showError: (message, action): void => {
       render([el(doc, 'p', 'message error', message)], action);

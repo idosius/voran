@@ -32,6 +32,26 @@ describe('createModal', () => {
     );
   });
 
+  it('shows the detected language as text, with or without segments', () => {
+    createModal(document).showResult('a', 'b', [], 'German <b>');
+    expect(within(shadowRoot()).getByText('Detected language: German <b>')).toBeInTheDocument();
+    for (const host of hosts()) {
+      host.remove();
+    }
+    createModal(document).showResult(
+      'a',
+      'b',
+      [{ original: 'a', fixed: 'b', reason: 'r' }],
+      'French',
+    );
+    expect(within(shadowRoot()).getByText('Detected language: French')).toBeInTheDocument();
+  });
+
+  it('shows no language line when none was detected', () => {
+    createModal(document).showResult('a', 'b', []);
+    expect(within(shadowRoot()).queryByText(/Detected language/u)).not.toBeInTheDocument();
+  });
+
   it('lets the text direction follow the content', () => {
     createModal(document).showResult('مرحبا', 'مرحبا بك', []);
     expect(within(shadowRoot()).getByRole('group', { name: 'Corrected text' })).toHaveAttribute(

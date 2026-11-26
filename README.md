@@ -99,6 +99,7 @@ Create an HTML file with a `<textarea>`, an `<input>`, a `<div contenteditable>`
 - [ ] Selection inside an iframe works.
 - [ ] Options: typing "deu" or "日本" filters the language list; unknown text then leaving the field shows an error and saves nothing; changes save automatically and survive reloading the options page.
 - [ ] Auto-detect: German, French and Japanese text are each corrected in their own language. With language = Spanish and explanations = Same as text, Spanish text is corrected with Spanish reasons.
+- [ ] Detected language: with language = auto-detect, the dialog shows "Detected language: …" under the diff; with a fixed language, no such line appears.
 - [ ] Arabic or Hebrew text renders right-to-left in the dialog.
 
 ## Project layout
@@ -118,6 +119,7 @@ tsconfig.node.json   strict config for build and tool configs
 - The API key is stored unencrypted in `chrome.storage.local`.
 - Selections are capped at 8000 characters.
 - With a fixed text language, text clearly in another language is returned unchanged. Use auto-detect to avoid this.
+- Auto-detect can misjudge very short or ambiguous selections (a single word, close language pairs). The dialog shows the detected language so a wrong guess is visible.
 - The language list is curated (~45 languages); add more in `src/languages.ts`.
 - Selections inside shadow roots of the host page cannot be replaced in place; the corrected text is copied.
 - Read-only and disabled fields are never modified; the corrected text is copied.

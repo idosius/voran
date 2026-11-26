@@ -81,14 +81,14 @@ async function run(
     return;
   }
 
-  const { fixed, segments } = response.result;
+  const { fixed, segments, language: detected } = response.result;
   if (fixed === target.original) {
     showApproval(document, statusSpot(target, point));
     return;
   }
 
   const modal = createModal(document);
-  modal.showResult(target.original, fixed, segments);
+  modal.showResult(target.original, fixed, segments, detected);
   await modal.closed;
 
   const outcome = await applyReplacement(document, target, fixed);

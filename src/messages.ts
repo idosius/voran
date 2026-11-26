@@ -17,6 +17,8 @@ export interface FixResult {
   readonly fixed: string;
   // Empty when no per-change reasons are available.
   readonly segments: readonly Segment[];
+  // English name of the language the model detected; only reported in auto-detect mode.
+  readonly language?: string;
 }
 
 export interface StartMessage {

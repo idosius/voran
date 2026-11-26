@@ -276,6 +276,69 @@ describe('fixText confirm_correct reply', () => {
   });
 });
 
+function sentBody(fetchMock: { mock: { calls: unknown[][] } }): {
+  system: string;
+  tools: { name: string; input_schema: { properties: object; required?: string[] } }[];
+} {
+  const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+  return JSON.parse(init.body as string) as ReturnType<typeof sentBody>;
+}
+
+describe('detected language', () => {
+  const AUTO = { language: 'auto', reasonLanguage: 'English' };
+  const SEGMENTS = [{ text: 'Ich bin müde.' }];
+
+  async function detect(language: unknown, settings = AUTO): ReturnType<typeof fixText> {
+    return fixText(
+      'Ich bin müde.',
+      'k',
+      settings,
+      fetchReturning(jsonResponse(toolUse({ language, segments: SEGMENTS }))),
+    );
+  }
+
+  it('asks for the language first and requires it in auto mode', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(confirmReply())));
+    await fixText('a', 'k', AUTO, fetchMock);
+    const schema = sentBody(fetchMock).tools[0]?.input_schema;
+    expect(Object.keys(schema?.properties ?? {})).toEqual(['language', 'segments']);
+    expect(schema?.required).toEqual(['language', 'segments']);
+  });
+
+  it('does not ask for it with a fixed language', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(confirmReply())));
+    await fixText('a', 'k', { language: 'German', reasonLanguage: 'English' }, fetchMock);
+    const schema = sentBody(fetchMock).tools[0]?.input_schema;
+    expect(Object.keys(schema?.properties ?? {})).toEqual(['segments']);
+    expect(schema?.required).toEqual(['segments']);
+  });
+
+  it('returns the trimmed language', async () => {
+    const result = await detect(' German ');
+    expect(result.language).toBe('German');
+  });
+
+  it.each([
+    ['empty', ''],
+    ['blank', ' '],
+    ['a number', 5],
+    ['missing', undefined],
+    ['overlong', 'x'.repeat(41)],
+  ])('drops a language that is %s', async (_label, value) => {
+    expect(await detect(value)).not.toHaveProperty('language');
+  });
+
+  it('ignores a language reported in fixed-language mode', async () => {
+    const result = await detect('German', { language: 'German', reasonLanguage: 'English' });
+    expect(result).not.toHaveProperty('language');
+  });
+
+  it('reports none for confirm_correct', async () => {
+    const result = await fixText('a', 'k', AUTO, fetchReturning(jsonResponse(confirmReply())));
+    expect(result).toEqual({ fixed: 'a', segments: [] });
+  });
+});
+
 describe('buildSystemPrompt', () => {
   it('asks the model to detect the language in auto mode', () => {
     const prompt = buildSystemPrompt({ language: 'auto', reasonLanguage: 'English' });

@@ -28,7 +28,7 @@ Node >= 22. After a rebuild, reload the extension on `chrome://extensions` and r
 
 Three separate esbuild IIFE bundles (`background`, `content`, `options`), each entry in `src/`. They talk only via `chrome.runtime` messages typed in `src/messages.ts` (type guards like `isBackgroundRequest` validate every incoming message).
 
-Flow: context-menu click in `background.ts` -> `voran:start` to the content script in the clicked frame (injects `content.js` if the tab predates install) -> `content.ts` shows a "Checking…" pill and sends `voran:fix` -> `background.ts` reads the API key and language settings from `chrome.storage.local`, calls `claude.ts` -> result returns to `content.ts` -> `modal.ts` shows the diff -> on close, `replace.ts` applies the text.
+Flow: context-menu click in `background.ts` -> `voran:start` to the content script in the clicked frame (injects `content.js` if the tab predates install) -> `content.ts` shows a "Checking…" pill and sends `voran:fix` -> `background.ts` reads the API key and language settings from `chrome.storage.local`, calls `claude.ts` -> result returns to `content.ts` -> `modal.ts` shows the diff (plus the language the model detected in auto mode) -> on close, `replace.ts` applies the text.
 
 Key points spanning files:
 

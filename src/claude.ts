@@ -12,9 +12,12 @@ const API_URL = 'https://api.anthropic.com/v1/messages';
 const TOOL_NAME = 'submit_correction';
 const CONFIRM_TOOL_NAME = 'confirm_correct';
 
+const MAX_LANGUAGE_CHARS = 40;
+
 function languageInstructions(language: string): string {
   return language === AUTO_LANGUAGE
-    ? `The user message is text to correct. Detect its language and correct it in that language. Never translate. If the text mixes languages, correct each part in its own language.`
+    ? `The user message is text to correct. Detect its language and correct it in that language. Never translate. If the text mixes languages, correct each part in its own language.
+When you call ${TOOL_NAME}, report the language of the text in "language".`
     : `The user message is ${language} text to correct. Correct it as ${language}. Never translate. If the text is clearly in another language, return it unchanged.`;
 }
 
@@ -59,9 +62,20 @@ function messageForStatus(status: number): string {
 }
 
 /**
+The model's report of the text's language, or undefined when it is missing or not a short name.
+*/
+function detectedLanguage(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const name = value.trim();
+  return name === '' || name.length > MAX_LANGUAGE_CHARS ? undefined : name;
+}
+
+/**
 confirm_correct means the text was already fine; submit_correction carries the fix.
 */
-function parseResponse(body: unknown, original: string): FixResult | undefined {
+function parseResponse(body: unknown, original: string, detect: boolean): FixResult | undefined {
   if (!isRecord(body)) {
     return undefined;
   }
@@ -81,9 +95,12 @@ function parseResponse(body: unknown, original: string): FixResult | undefined {
     }
     if (block['name'] === TOOL_NAME) {
       const input = block['input'];
-      return isRecord(input) && isSegmentList(input['segments'])
-        ? fromSegments(input['segments'], original)
-        : undefined;
+      if (!isRecord(input) || !isSegmentList(input['segments'])) {
+        return undefined;
+      }
+      const result = fromSegments(input['segments'], original);
+      const language = detect ? detectedLanguage(input['language']) : undefined;
+      return result === undefined || language === undefined ? result : { ...result, language };
     }
   }
   return undefined;
@@ -186,6 +203,8 @@ export async function fixText(
   // and the tool-call wrapper. Non-Latin scripts can need more than one token per character, so the
   // input length is doubled.
   const maxTokens = text.length * 2 + 2000;
+  // Only auto-detect needs the model to name the language; a fixed language is already known.
+  const detect = settings.language === AUTO_LANGUAGE;
   let response: Response;
   try {
     response = await fetchImpl(API_URL, {
@@ -208,6 +227,13 @@ export async function fixText(
             input_schema: {
               type: 'object',
               properties: {
+                ...(detect && {
+                  language: {
+                    type: 'string',
+                    description:
+                      'English name of the language of the text, e.g. "German". For mixed text, the main language.',
+                  },
+                }),
                 segments: {
                   type: 'array',
                   items: {
@@ -230,7 +256,7 @@ export async function fixText(
                   },
                 },
               },
-              required: ['segments'],
+              required: detect ? ['language', 'segments'] : ['segments'],
             },
           },
           {
@@ -262,7 +288,7 @@ export async function fixText(
     );
   }
 
-  const result = parseResponse(body, text);
+  const result = parseResponse(body, text, detect);
   if (result === undefined) {
     throw new ClaudeError('Unexpected response from Claude.');
   }
