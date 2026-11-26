@@ -1,6 +1,6 @@
 # Voran
 
-Chrome extension (Manifest V3). Select text in any language, right-click, choose **Voran**. Claude Haiku returns a corrected version. A dialog shows an inline word diff (removed words struck through, added words highlighted). Hover (or Tab to) a correction to see the reason in a tooltip. When you apply the correction, the corrected text replaces the selection; cancelling leaves it unchanged.
+Chrome extension (Manifest V3). Select text in any language, right-click, choose **Fix text with Voran**. Claude Haiku returns a corrected version. A dialog shows an inline word diff (removed words struck through, added words highlighted). Hover (or Tab to) a correction to see the reason in a tooltip. When you apply the correction, the corrected text replaces the selection; cancelling leaves it unchanged.
 
 ## Requirements
 
@@ -21,7 +21,7 @@ npm run build
 
 ## Usage
 
-Select text, right-click, choose **Voran**. When changes are proposed, **Apply correction** (or Enter) applies them; **Cancel**, Esc or a click outside the dialog discards them and leaves the text alone.
+Select text, right-click, choose **Fix text with Voran**. When changes are proposed, **Apply correction** (or Enter) applies them; **Cancel**, Esc or a click outside the dialog discards them and leaves the text alone.
 
 Replacement depends on where the text was selected:
 
