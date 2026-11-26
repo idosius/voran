@@ -123,4 +123,4 @@ tsconfig.node.json   strict config for build and tool configs
 - The language list is curated (~45 languages); add more in `src/languages.ts`.
 - Selections inside shadow roots of the host page cannot be replaced in place; the corrected text is copied.
 - Read-only and disabled fields are never modified; the corrected text is copied.
-- Requests time out after 30 seconds.
+- A correction times out after 60 seconds, including one automatic retry when the model replies without calling a tool.

@@ -13,6 +13,9 @@ const TOOL_NAME = 'submit_correction';
 const CONFIRM_TOOL_NAME = 'confirm_correct';
 
 const MAX_LANGUAGE_CHARS = 40;
+const EFFORT = 'low';
+// Room for adaptive thinking, which counts toward max_tokens.
+const THINKING_TOKENS = 6000;
 
 function languageInstructions(language: string): string {
   return language === AUTO_LANGUAGE
@@ -199,75 +202,106 @@ export async function fixText(
     throw new ClaudeError('Nothing to correct.');
   }
 
-  // Output is at most about as long as the input, plus room for the per-segment JSON, the reasons
-  // and the tool-call wrapper. Non-Latin scripts can need more than one token per character, so the
-  // input length is doubled.
-  const maxTokens = text.length * 2 + 2000;
+  // Output is at most about as long as the input, plus room for the per-segment JSON, the reasons,
+  // the tool-call wrapper and the model's thinking. Non-Latin scripts can need more than one token
+  // per character, so the input length is doubled.
+  const maxTokens = text.length * 2 + THINKING_TOKENS + 2000;
   // Only auto-detect needs the model to name the language; a fixed language is already known.
   const detect = settings.language === AUTO_LANGUAGE;
+  const requestBody = JSON.stringify({
+    model: MODEL,
+    max_tokens: maxTokens,
+    // A forced tool call (tool_choice "any") skips thinking, and without it the model catches only
+    // the most obvious error per pass (capitalization and agreement slip through). Letting it choose
+    // the tool keeps adaptive thinking on; low effort recovers nearly all fixes at the least delay.
+    output_config: { effort: EFFORT },
+    system: buildSystemPrompt(settings),
+    tools: [
+      {
+        name: TOOL_NAME,
+        description: 'Submit the text as ordered segments: unchanged pieces and corrections.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            ...(detect && {
+              language: {
+                type: 'string',
+                description:
+                  'English name of the language of the text, e.g. "German". For mixed text, the main language.',
+              },
+            }),
+            segments: {
+              type: 'array',
+              items: {
+                anyOf: [
+                  {
+                    type: 'object',
+                    properties: { text: { type: 'string' } },
+                    required: ['text'],
+                  },
+                  {
+                    type: 'object',
+                    properties: {
+                      original: { type: 'string' },
+                      fixed: { type: 'string' },
+                      reason: { type: 'string' },
+                    },
+                    required: ['original', 'fixed', 'reason'],
+                  },
+                ],
+              },
+            },
+          },
+          required: detect ? ['language', 'segments'] : ['segments'],
+        },
+      },
+      {
+        name: CONFIRM_TOOL_NAME,
+        description: 'Call when the text is already entirely correct and needs no changes.',
+        input_schema: { type: 'object', properties: {} },
+      },
+    ],
+    tool_choice: { type: 'auto' },
+    messages: [{ role: 'user', content: text }],
+  });
+
+  // One deadline for the whole correction, retry included, so the user never waits much past it.
+  const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  let body = await send(requestBody, apiKey, signal, fetchImpl);
+  // With tool_choice "auto" the model may finish with plain text despite the prompt; ask once more.
+  // Truncated or refused replies are not retried: the same request would fail the same way.
+  if (isPlainAnswer(body)) {
+    body = await send(requestBody, apiKey, signal, fetchImpl);
+    if (isPlainAnswer(body)) {
+      // Twice no tool call: the model had no correction to submit, so treat the text as correct.
+      return { fixed: text, segments: [] };
+    }
+  }
+  const result = parseResponse(body, text, detect);
+  if (result === undefined) {
+    throw new ClaudeError('Unexpected response from Claude.');
+  }
+  return result;
+}
+
+async function send(
+  requestBody: string,
+  apiKey: string,
+  signal: AbortSignal,
+  fetchImpl: typeof fetch,
+): Promise<unknown> {
   let response: Response;
   try {
     response = await fetchImpl(API_URL, {
       method: 'POST',
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal,
       headers: {
         'content-type': 'application/json',
         'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
         'anthropic-dangerous-direct-browser-access': 'true',
       },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: maxTokens,
-        system: buildSystemPrompt(settings),
-        tools: [
-          {
-            name: TOOL_NAME,
-            description: 'Submit the text as ordered segments: unchanged pieces and corrections.',
-            input_schema: {
-              type: 'object',
-              properties: {
-                ...(detect && {
-                  language: {
-                    type: 'string',
-                    description:
-                      'English name of the language of the text, e.g. "German". For mixed text, the main language.',
-                  },
-                }),
-                segments: {
-                  type: 'array',
-                  items: {
-                    anyOf: [
-                      {
-                        type: 'object',
-                        properties: { text: { type: 'string' } },
-                        required: ['text'],
-                      },
-                      {
-                        type: 'object',
-                        properties: {
-                          original: { type: 'string' },
-                          fixed: { type: 'string' },
-                          reason: { type: 'string' },
-                        },
-                        required: ['original', 'fixed', 'reason'],
-                      },
-                    ],
-                  },
-                },
-              },
-              required: detect ? ['language', 'segments'] : ['segments'],
-            },
-          },
-          {
-            name: CONFIRM_TOOL_NAME,
-            description: 'Call when the text is already entirely correct and needs no changes.',
-            input_schema: { type: 'object', properties: {} },
-          },
-        ],
-        tool_choice: { type: 'any' },
-        messages: [{ role: 'user', content: text }],
-      }),
+      body: requestBody,
     });
   } catch (error) {
     throw new ClaudeError(
@@ -279,18 +313,25 @@ export async function fixText(
     throw new ClaudeError(messageForStatus(response.status));
   }
 
-  let body: unknown;
   try {
-    body = await response.json();
+    return (await response.json()) as unknown;
   } catch (error) {
     throw new ClaudeError(
       isTimeout(error) ? 'Request timed out. Try again.' : 'Unreadable response from Claude.',
     );
   }
+}
 
-  const result = parseResponse(body, text, detect);
-  if (result === undefined) {
-    throw new ClaudeError('Unexpected response from Claude.');
+/**
+The model finished normally (not truncated, not refused) without calling either tool.
+*/
+function isPlainAnswer(body: unknown): boolean {
+  if (!isRecord(body) || body['stop_reason'] !== 'end_turn') {
+    return false;
   }
-  return result;
+  const content = body['content'];
+  return !(
+    Array.isArray(content) &&
+    (content as unknown[]).some((block) => isRecord(block) && block['type'] === 'tool_use')
+  );
 }

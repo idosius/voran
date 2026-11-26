@@ -22,8 +22,11 @@ function fix(text: string, key: string, fetchImpl: typeof fetch): ReturnType<typ
 }
 
 function fetchReturning(response: Response | Error): typeof fetch {
+  // A fresh copy per call: a retried request must not read an already consumed body.
   return vi.fn(() =>
-    response instanceof Error ? Promise.reject(response) : Promise.resolve(response),
+    response instanceof Error
+      ? Promise.reject(response)
+      : Promise.resolve(response instanceof Response ? response.clone() : response),
   );
 }
 
@@ -48,7 +51,8 @@ describe('fixText', () => {
     });
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
     expect(body['model']).toBe(MODEL);
-    expect(body['tool_choice']).toEqual({ type: 'any' });
+    expect(body['tool_choice']).toEqual({ type: 'auto' });
+    expect(body['output_config']).toEqual({ effort: 'low' });
     expect(body['messages']).toEqual([{ role: 'user', content: 'Die Kinder spielt.' }]);
   });
 
@@ -205,12 +209,12 @@ describe('fixText request limits', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('sizes max_tokens to at least two tokens per input character', async () => {
+  it('sizes max_tokens to two tokens per input character plus room for thinking', async () => {
     const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(okBody)));
     await fix('x'.repeat(7000), 'k', fetchMock);
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
-    expect(body['max_tokens']).toBeGreaterThanOrEqual(14_000);
+    expect(body['max_tokens']).toBeGreaterThanOrEqual(14_000 + 6000);
   });
 
   it('passes an abort signal to fetch', async () => {
@@ -247,7 +251,7 @@ describe('fixText confirm_correct reply', () => {
     expect(result).toEqual({ fixed: 'Ich bin müde.', segments: [] });
   });
 
-  it('offers both tools and forces a tool call', async () => {
+  it('offers both tools and lets the model choose, keeping thinking on', async () => {
     const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(confirmReply())));
     await fix('a', 'k', fetchMock);
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
@@ -257,15 +261,69 @@ describe('fixText confirm_correct reply', () => {
       system: string;
     };
     expect(body.tools.map((tool) => tool.name)).toEqual(['submit_correction', 'confirm_correct']);
-    expect(body.tool_choice).toEqual({ type: 'any' });
+    expect(body.tool_choice).toEqual({ type: 'auto' });
     expect(body.system).toContain('confirm_correct');
   });
 
-  it('rejects plain text replies', async () => {
-    const body = { stop_reason: 'end_turn', content: [{ type: 'text', text: 'AOK' }] };
-    await expect(fix('a', 'k', fetchReturning(jsonResponse(body)))).rejects.toThrow(
-      /Unexpected response/,
-    );
+  it('treats two plain text replies as already correct', async () => {
+    const body = { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Looks fine.' }] };
+    const fetchMock = fetchReturning(jsonResponse(body));
+    const result = await fix('Ich bin müde.', 'k', fetchMock);
+    expect(result).toEqual({ fixed: 'Ich bin müde.', segments: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry a reply cut off by max_tokens', async () => {
+    const body = { stop_reason: 'max_tokens', content: [{ type: 'thinking', thinking: '' }] };
+    const fetchMock = fetchReturning(jsonResponse(body));
+    await expect(fix('a', 'k', fetchMock)).rejects.toThrow(/too long/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry a refusal', async () => {
+    const body = { stop_reason: 'refusal', content: [] };
+    const fetchMock = fetchReturning(jsonResponse(body));
+    await expect(fix('a', 'k', fetchMock)).rejects.toThrow(/Unexpected response/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('shares one deadline between the first request and the retry', async () => {
+    const plain = { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Looks fine.' }] };
+    const fetchMock = fetchReturning(jsonResponse(plain));
+    await fix('a', 'k', fetchMock);
+    const [first, second] = vi.mocked(fetchMock).mock.calls as unknown as [string, RequestInit][];
+    expect(second?.[1].signal).toBe(first?.[1].signal);
+  });
+
+  it('retries once when the model answers without calling a tool', async () => {
+    const plain = { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Looks fine.' }] };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(plain))
+      .mockResolvedValueOnce(jsonResponse(confirmReply()));
+    const result = await fix('Ich bin müde.', 'k', fetchMock);
+    expect(result).toEqual({ fixed: 'Ich bin müde.', segments: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [first, second] = fetchMock.mock.calls as unknown as [string, RequestInit][];
+    expect(second?.[1].body).toBe(first?.[1].body);
+  });
+
+  it('does not retry when the model called a tool', async () => {
+    const fetchMock = fetchReturning(jsonResponse(confirmReply()));
+    await fix('a', 'k', fetchMock);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads the tool call after thinking blocks', async () => {
+    const body = {
+      stop_reason: 'tool_use',
+      content: [
+        { type: 'thinking', thinking: '', signature: 's' },
+        ...(confirmReply() as { content: unknown[] }).content,
+      ],
+    };
+    const result = await fix('Ich bin müde.', 'k', fetchReturning(jsonResponse(body)));
+    expect(result).toEqual({ fixed: 'Ich bin müde.', segments: [] });
   });
 
   it('ignores malformed and unrelated blocks', async () => {
